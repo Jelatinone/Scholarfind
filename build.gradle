@@ -1,20 +1,23 @@
 plugins {
-    id 'java'
+  id 'java'
 }
 
 group = 'com.github.jelatinone'
 version = '1.0-SNAPSHOT'
 
 repositories {
-    mavenCentral()
+  mavenCentral()
 }
 
 dependencies {
-    testImplementation platform('org.junit:junit-bom:5.10.0')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+  testImplementation platform('org.junit:junit-bom:5.10.0')
+  testImplementation 'org.junit.jupiter:junit-jupiter'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+  implementation ('org.htmlunit:htmlunit:4.4.0')
+  implementation("com.fasterxml.jackson.core:jackson-databind:2.0.1")
 }
 
 test {
-    useJUnitPlatform()
+  useJUnitPlatform()
 }
