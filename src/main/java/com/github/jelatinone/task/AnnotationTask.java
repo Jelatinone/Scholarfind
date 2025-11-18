@@ -167,19 +167,18 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 			}
 		} catch (final IOException exception) {
 			exception.printStackTrace();
-			System.err.printf("Failed annotation at: %s\n %s", TARGET_FILE, exception.getMessage());
+			System.err.printf("Failed annotation at: %s\n %s\n", TARGET_FILE, exception.getMessage());
 		} finally {
 			System.err.println("Completed Annotation Task!");
 			WEB_DRIVER.close();
 		}
 	}
 
-	public static Collection<AnnotationTask> fromCommand(final CommandLine command, final String fromOption,
-			final String toOption) {
-		String[] fromValues = command.getOptionValues(fromOption);
-		String toValue = Optional.ofNullable(command.getOptionValue(toOption))
+	public static Collection<AnnotationTask> fromCommand(final CommandLine command) {
+		String[] fromValues = command.getOptionValues("annotateFrom");
+		String toValue = Optional
+				.ofNullable(command.getOptionValue("annotateTo"))
 				.orElse(String.format(BASE_DESTINATION, LocalDate.now().toString()));
-
 		if (fromValues == null)
 			return List.of();
 

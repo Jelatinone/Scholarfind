@@ -82,19 +82,19 @@ public class Main {
       if (command.hasOption("searchFrom")) {
         System.err.println("Running Search Task...");
         Collection<SearchTask> searchTasks = SearchTask.fromCommand(
-            command,
-            "searchFrom",
-            "searchTo");
-        searchTasks.parallelStream().forEach(Task::run);
+            command);
+        searchTasks
+            .parallelStream()
+            .forEach(Task::run);
       }
 
       if (command.hasOption("annotateFrom")) {
         System.err.println("Running Annotation Task...");
         Collection<AnnotationTask> annotationTasks = AnnotationTask.fromCommand(
-            command,
-            "annotateFrom",
-            "annotateTo");
-        annotationTasks.parallelStream().forEach(Task::run);
+            command);
+        annotationTasks
+            .parallelStream()
+            .forEach(Task::run);
       }
 
     } catch (final ParseException exception) {

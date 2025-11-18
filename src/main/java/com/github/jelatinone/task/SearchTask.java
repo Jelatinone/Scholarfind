@@ -112,16 +112,16 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 				System.err.printf("Completed search at: %s\n", TARGET_URI);
 			}
 		} catch (final IOException exception) {
-			System.err.printf("Failed search at: %s\n %s", TARGET_URI, exception.getMessage());
+			System.err.printf("Failed search at: %s\n %s\n", TARGET_URI, exception.getMessage());
 		} finally {
 			System.err.println("Completed Search Task!");
 		}
 	}
 
-	public static Collection<SearchTask> fromCommand(final CommandLine command, final String fromOption,
-			final String toOption) {
-		String[] fromValues = command.getOptionValues(fromOption);
-		String toValue = Optional.ofNullable(command.getOptionValue(toOption))
+	public static Collection<SearchTask> fromCommand(final CommandLine command) {
+		String[] fromValues = command.getOptionValues("searchFrom");
+		String toValue = Optional
+				.ofNullable(command.getOptionValue("searchTo"))
 				.orElse(String.format(BASE_DESTINATION, LocalDate.now().toString()));
 
 		if (fromValues == null) {
