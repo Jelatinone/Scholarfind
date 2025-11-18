@@ -18,7 +18,7 @@ dependencies {
   implementation ('org.htmlunit:htmlunit:4.4.0')
   implementation ('commons-cli:commons-cli:1.10.0')
   implementation ("com.fasterxml.jackson.core:jackson-databind:2.0.1")
-  implementation ("org.seleniumhq.selenium:selenium-java:2.41.0")
+  implementation ("org.seleniumhq.selenium:selenium-java:4.38.0")
   implementation ("org.jline:jline:3.26.1")
 }
 

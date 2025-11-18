@@ -6,10 +6,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Scanner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -17,9 +19,6 @@ import org.apache.commons.cli.CommandLine;
 import org.htmlunit.BrowserVersion;
 import org.htmlunit.WebClient;
 import org.htmlunit.html.HtmlPage;
-
-import org.jline.terminal.Terminal;
-import org.jline.terminal.TerminalBuilder;
 
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.firefox.FirefoxDriver;
@@ -37,46 +36,44 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 	private final String TARGET_FILE;
 	private final String DESTINATION_FILE;
 
+	private final WebDriver WEB_DRIVER;
+	private final Scanner INPUT_SCANNER;
+
 	private AnnotationTask(final String Target, final String Destination) {
 		TARGET_FILE = Target;
 		DESTINATION_FILE = Destination;
+
+		WEB_DRIVER = new FirefoxDriver();
+		INPUT_SCANNER = new Scanner(System.in);
 	}
 
 	@Override
 	public Boolean node(final HtmlPage pageContent) {
-		final WebDriver Driver = new FirefoxDriver();
-		try {
-			// More abstract solution for finding dates...?
-			final LocalDate openDate = LocalDate.parse(pageContent
-					.querySelector(".sc-d233e5e8-1 > div:nth-child(1) > span:nth-child(2)")
-					.getTextContent().trim());
-			final LocalDate closeDate = LocalDate.parse(pageContent
-					.querySelector(".sc-d233e5e8-1 > div:nth-child(2) > span:nth-child(2)")
-					.getTextContent().trim());
-			final LocalDate currentDate = LocalDate.now();
+		// More abstract solution for finding dates...?
+		final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("M/d/yyyy");
+		final LocalDate openDate = LocalDate.parse(pageContent
+				.querySelector(".sc-d233e5e8-1 > div:nth-child(1) > span:nth-child(2)")
+				.getTextContent().trim(),
+				formatter);
+		final LocalDate closeDate = LocalDate.parse(pageContent
+				.querySelector(".sc-d233e5e8-1 > div:nth-child(2) > span:nth-child(2)")
+				.getTextContent().trim(),
+				formatter);
+		final LocalDate currentDate = LocalDate.now();
 
-			if (!(currentDate.isAfter(openDate) || currentDate.isEqual(openDate))) {
-				return false;
-			}
-			if (!(currentDate.isAfter(closeDate) || currentDate.isEqual(closeDate))) {
-				return false;
-			}
-			Driver.get(pageContent.getBaseURI());
-			Terminal system = TerminalBuilder
-					.builder()
-					.system(true)
-					.build();
-			System.out.println("Review: " + pageContent.getTitleText());
-			System.out.print("[Y/N]: ");
-			int input = system.reader().read();
-			return input == 'y' || input == 'Y';
-		} catch (final IOException exception) {
-			System.err.format("Failed to validate annotation: \n%s", exception.getMessage());
+		if (currentDate.isBefore(currentDate)) {
 			return false;
-		} finally {
-			Driver.close();
 		}
-
+		if (currentDate.isAfter(closeDate)) {
+			return false;
+		}
+		WEB_DRIVER.get(pageContent.getBaseURI());
+		System.out.printf("Review: %s\n", pageContent.getUrl());
+		synchronized (System.in) {
+			String line = INPUT_SCANNER.nextLine().trim();
+			char input = line.isEmpty() ? 'n' : Character.toLowerCase(line.charAt(0));
+			return input == 'y';
+		}
 	}
 
 	@Override
@@ -165,6 +162,7 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 			System.err.printf("Failed annotation at: %s\n %s", TARGET_FILE, exception.getMessage());
 		} finally {
 			System.err.println("Completed Annotation Task!");
+			WEB_DRIVER.close();
 		}
 	}
 
