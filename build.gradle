@@ -22,6 +22,10 @@ dependencies {
   implementation ("org.jline:jline:3.26.1")
 }
 
+run {
+  standardInput = System.in
+}
+
 test {
   useJUnitPlatform()
 }

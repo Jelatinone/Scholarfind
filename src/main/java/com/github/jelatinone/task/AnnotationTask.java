@@ -60,20 +60,27 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 				.getTextContent().trim(),
 				formatter);
 		final LocalDate currentDate = LocalDate.now();
-
-		if (currentDate.isBefore(currentDate)) {
+		if (currentDate.isBefore(openDate)) {
 			return false;
 		}
 		if (currentDate.isAfter(closeDate)) {
 			return false;
 		}
 		WEB_DRIVER.get(pageContent.getBaseURI());
-		System.out.printf("Review: %s\n", pageContent.getUrl());
-		synchronized (System.in) {
-			String line = INPUT_SCANNER.nextLine().trim();
-			char input = line.isEmpty() ? 'n' : Character.toLowerCase(line.charAt(0));
-			return input == 'y';
+		System.out.print("Approve? (Y/N): ");
+		System.out.flush();
+		while (!INPUT_SCANNER.hasNextLine()) {
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException ignored) {
+			}
 		}
+
+		String line = INPUT_SCANNER.nextLine().trim();
+		if (line.isEmpty())
+			return false;
+
+		return line.charAt(0) == 'y';
 	}
 
 	@Override
