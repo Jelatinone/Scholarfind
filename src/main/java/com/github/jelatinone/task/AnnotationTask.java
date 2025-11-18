@@ -5,6 +5,7 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +20,7 @@ import org.htmlunit.html.HtmlPage;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.firefox.FirefoxDriver;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -30,58 +31,34 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 	private static final Map<String, Object> FILE_LOCKS = new ConcurrentHashMap<>();
 	private static final String BASE_DESTINATION = ("output/annotation-results_%s.json");
 
-	private final WebClient WEB_CLIENT;
-	private final WebDriver WEB_DRIVER;
-
 	private final String TARGET_FILE;
 	private final String DESTINATION_FILE;
 
 	private AnnotationTask(final String Target, final String Destination) {
 		TARGET_FILE = Target;
 		DESTINATION_FILE = Destination;
-
-		WEB_CLIENT = new WebClient(BrowserVersion.BEST_SUPPORTED);
-		WEB_CLIENT
-				.getOptions()
-				.setDownloadImages(false);
-		WEB_CLIENT
-				.getOptions()
-				.setTimeout(3500);
-		WEB_CLIENT
-				.getOptions()
-				.setCssEnabled(false);
-		WEB_CLIENT
-				.getOptions()
-				.setJavaScriptEnabled(false);
-		WEB_CLIENT
-				.getOptions()
-				.setThrowExceptionOnScriptError(false);
-		WEB_CLIENT
-				.getOptions()
-				.setPrintContentOnFailingStatusCode(false);
-		WEB_DRIVER = new ChromeDriver();
 	}
 
 	@Override
 	public Boolean node(final HtmlPage pageContent) {
-		// More abstract solution for finding dates...?
-		final LocalDate openDate = LocalDate.parse(pageContent
-				.querySelector(".sc-d233e5e8-1 > div:nth-child(1) > span:nth-child(2)")
-				.getTextContent().trim());
-		final LocalDate closeDate = LocalDate.parse(pageContent
-				.querySelector(".sc-d233e5e8-1 > div:nth-child(2) > span:nth-child(2)")
-				.getTextContent().trim());
-		final LocalDate currentDate = LocalDate.now();
-
-		if (!(currentDate.isAfter(openDate) || currentDate.isEqual(openDate))) {
-			return false;
-		}
-		if (!(currentDate.isAfter(closeDate) || currentDate.isEqual(closeDate))) {
-			return false;
-		}
-
-		WEB_DRIVER.get(pageContent.getBaseURI());
+		final WebDriver Driver = new FirefoxDriver();
 		try {
+			// More abstract solution for finding dates...?
+			final LocalDate openDate = LocalDate.parse(pageContent
+					.querySelector(".sc-d233e5e8-1 > div:nth-child(1) > span:nth-child(2)")
+					.getTextContent().trim());
+			final LocalDate closeDate = LocalDate.parse(pageContent
+					.querySelector(".sc-d233e5e8-1 > div:nth-child(2) > span:nth-child(2)")
+					.getTextContent().trim());
+			final LocalDate currentDate = LocalDate.now();
+
+			if (!(currentDate.isAfter(openDate) || currentDate.isEqual(openDate))) {
+				return false;
+			}
+			if (!(currentDate.isAfter(closeDate) || currentDate.isEqual(closeDate))) {
+				return false;
+			}
+			Driver.get(pageContent.getBaseURI());
 			Terminal system = TerminalBuilder
 					.builder()
 					.system(true)
@@ -93,7 +70,10 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 		} catch (final IOException exception) {
 			System.err.format("Failed to validate annotation: \n%s", exception.getMessage());
 			return false;
+		} finally {
+			Driver.close();
 		}
+
 	}
 
 	@Override
@@ -101,16 +81,41 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 		final String date = LocalDate
 				.now()
 				.toString();
+		final String time = LocalTime
+				.now()
+				.toString();
 		final JsonFactory factory = new JsonFactory();
 
 		try (FileReader reader = new FileReader(new File(TARGET_FILE));
-				JsonGenerator generator = factory.createJsonGenerator(new FileWriter(new File(DESTINATION_FILE)))) {
+				JsonGenerator generator = factory.createJsonGenerator(new FileWriter(new File(DESTINATION_FILE)));
+				WebClient Client = new WebClient(
+						BrowserVersion.BEST_SUPPORTED)) {
+			Client
+					.getOptions()
+					.setDownloadImages(false);
+			Client
+					.getOptions()
+					.setTimeout(3500);
+			Client
+					.getOptions()
+					.setCssEnabled(false);
+			Client
+					.getOptions()
+					.setJavaScriptEnabled(false);
+			Client
+					.getOptions()
+					.setThrowExceptionOnScriptError(false);
+			Client
+					.getOptions()
+					.setPrintContentOnFailingStatusCode(false);
+
 			generator.useDefaultPrettyPrinter();
 			Object lock = FILE_LOCKS.computeIfAbsent(DESTINATION_FILE, destination -> new Object());
 			ObjectMapper mapper = new ObjectMapper(factory);
 			synchronized (lock) {
 				generator.writeStartObject();
 				generator.writeStringField("date", date);
+				generator.writeStringField("time", time);
 				generator.writeFieldName("results");
 				generator.writeStartArray();
 				mapper
@@ -120,7 +125,7 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 						.forEachRemaining((value) -> {
 							String link = value.asText();
 							try {
-								final HtmlPage pageContent = WEB_CLIENT.<HtmlPage>getPage(link);
+								final HtmlPage pageContent = Client.<HtmlPage>getPage(link);
 								if (node(pageContent)) {
 									generator.writeString(link);
 									generator.writeStartObject();
@@ -152,11 +157,9 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 			}
 		} catch (final IOException exception) {
 			exception.printStackTrace();
-			System.err.printf("Failed annotation at: %s\n", TARGET_FILE);
+			System.err.printf("Failed annotation at: %s\n %s", TARGET_FILE, exception.getMessage());
 		} finally {
 			System.err.println("Completed Annotation Task!");
-			WEB_DRIVER.close();
-			WEB_CLIENT.close();
 		}
 	}
 

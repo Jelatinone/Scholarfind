@@ -20,7 +20,6 @@ import org.w3c.dom.Node;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
-
 import com.github.jelatinone.Task;
 
 public final class SearchTask implements Task<DomNode, Optional<String>> {
@@ -30,41 +29,17 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 	private final String TARGET_URI;
 	private final String DESTINATION_FILE;
 
-	private final WebClient WEB_DRIVER;
-
 	private SearchTask(final String Target, final String Destination) {
 		TARGET_URI = Target;
 		DESTINATION_FILE = Destination;
-
-		WEB_DRIVER = new WebClient(BrowserVersion.BEST_SUPPORTED);
-		WEB_DRIVER
-				.getOptions()
-				.setDownloadImages(false);
-		WEB_DRIVER
-				.getOptions()
-				.setTimeout(3500);
-		WEB_DRIVER
-				.getOptions()
-				.setCssEnabled(false);
-		WEB_DRIVER
-				.getOptions()
-				.setJavaScriptEnabled(false);
-		WEB_DRIVER
-				.getOptions()
-				.setThrowExceptionOnScriptError(false);
-		WEB_DRIVER
-				.getOptions()
-				.setPrintContentOnFailingStatusCode(false);
 	}
 
 	@Override
 	public Optional<String> node(final DomNode Work) {
 		// Needs improvement; score-based solution..?
-		Work.getAttributes().getNamedItem("href").
-
 		return Optional.ofNullable(Work.getAttributes())
 				.map(attributes -> attributes.getNamedItem("href"))
-				.map(Node::getTextContent);
+				.map(Node::toString);
 	}
 
 	@Override
@@ -75,7 +50,28 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 		final JsonFactory factory = new JsonFactory();
 
 		try (FileWriter writer = new FileWriter(new File(DESTINATION_FILE));
-				JsonGenerator generator = factory.createJsonGenerator(writer)) {
+				JsonGenerator generator = factory.createJsonGenerator(writer);
+				WebClient Client = new WebClient(
+						BrowserVersion.BEST_SUPPORTED)) {
+			Client
+					.getOptions()
+					.setDownloadImages(false);
+			Client
+					.getOptions()
+					.setTimeout(3500);
+			Client
+					.getOptions()
+					.setCssEnabled(false);
+			Client
+					.getOptions()
+					.setJavaScriptEnabled(false);
+			Client
+					.getOptions()
+					.setThrowExceptionOnScriptError(false);
+			Client
+					.getOptions()
+					.setPrintContentOnFailingStatusCode(false);
+
 			generator.useDefaultPrettyPrinter();
 
 			Object lock = FILE_LOCKS.computeIfAbsent(DESTINATION_FILE, (destination) -> {
@@ -89,7 +85,7 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 				generator.writeStringField("date", date);
 				generator.writeFieldName("results");
 				generator.writeStartArray();
-				WEB_DRIVER
+				Client
 						.<HtmlPage>getPage(TARGET_URI)
 						.querySelectorAll((".cb-link-blue"))
 						.stream()
@@ -108,11 +104,9 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 				System.err.printf("Completed search at: %s\n", TARGET_URI);
 			}
 		} catch (final IOException exception) {
-			exception.printStackTrace();
-			System.err.printf("Failed search at: %s\n", TARGET_URI);
+			System.err.printf("Failed search at: %s\n %s", TARGET_URI, exception.getMessage());
 		} finally {
 			System.err.println("Completed Search Task!");
-			WEB_DRIVER.close();
 		}
 	}
 
