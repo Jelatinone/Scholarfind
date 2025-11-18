@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -39,12 +40,15 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 		// Needs improvement; score-based solution..?
 		return Optional.ofNullable(Work.getAttributes())
 				.map(attributes -> attributes.getNamedItem("href"))
-				.map(Node::toString);
+				.map(Node::getTextContent);
 	}
 
 	@Override
 	public void run() {
 		final String date = LocalDate
+				.now()
+				.toString();
+		final String time = LocalTime
 				.now()
 				.toString();
 		final JsonFactory factory = new JsonFactory();
@@ -78,13 +82,14 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 				System.err.printf("Creating new file lock: %s\n", destination);
 				return new Object();
 			});
-			HtmlPage pageContent = Client
+			final HtmlPage pageContent = Client
 					.<HtmlPage>getPage(TARGET_URI);
 			synchronized (lock) {
 				System.err.printf("Started search at: %s\n", TARGET_URI);
 				generator.writeStartObject();
 				generator.writeStringField("href", TARGET_URI);
 				generator.writeStringField("date", date);
+				generator.writeStringField("time", time);
 				generator.writeFieldName("results");
 				generator.writeStartArray();
 				pageContent

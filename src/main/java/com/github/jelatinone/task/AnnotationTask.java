@@ -17,14 +17,17 @@ import org.apache.commons.cli.CommandLine;
 import org.htmlunit.BrowserVersion;
 import org.htmlunit.WebClient;
 import org.htmlunit.html.HtmlPage;
+
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
+
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.firefox.FirefoxDriver;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import com.github.jelatinone.Task;
 
 public class AnnotationTask implements Task<HtmlPage, Boolean> {
@@ -64,7 +67,7 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 					.system(true)
 					.build();
 			System.out.println("Review: " + pageContent.getTitleText());
-			System.out.print("[y/n]: ");
+			System.out.print("[Y/N]: ");
 			int input = system.reader().read();
 			return input == 'y' || input == 'Y';
 		} catch (final IOException exception) {
@@ -124,8 +127,10 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 						.iterator()
 						.forEachRemaining((value) -> {
 							String link = value.asText();
+							System.err.printf("Found compatible URI at: %s\n", link);
 							try {
-								final HtmlPage pageContent = Client.<HtmlPage>getPage(link);
+								final HtmlPage pageContent = Client
+										.<HtmlPage>getPage(link);
 								if (node(pageContent)) {
 									generator.writeString(link);
 									generator.writeStartObject();
