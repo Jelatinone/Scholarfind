@@ -85,7 +85,7 @@ public class Main {
             command,
             "searchFrom",
             "searchTo");
-        searchTasks.forEach(Task::run);
+        searchTasks.parallelStream().forEach(Task::run);
       }
 
       if (command.hasOption("annotateFrom")) {
@@ -94,7 +94,7 @@ public class Main {
             command,
             "annotateFrom",
             "annotateTo");
-        annotationTasks.forEach(Task::run);
+        annotationTasks.parallelStream().forEach(Task::run);
       }
 
     } catch (final ParseException exception) {

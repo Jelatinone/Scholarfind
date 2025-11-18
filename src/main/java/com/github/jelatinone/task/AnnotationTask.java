@@ -8,6 +8,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -173,7 +174,7 @@ public class AnnotationTask implements Task<HtmlPage, Boolean> {
 		}
 	}
 
-	public static List<AnnotationTask> fromCommand(final CommandLine command, final String fromOption,
+	public static Collection<AnnotationTask> fromCommand(final CommandLine command, final String fromOption,
 			final String toOption) {
 		String[] fromValues = command.getOptionValues(fromOption);
 		String toValue = Optional.ofNullable(command.getOptionValue(toOption))

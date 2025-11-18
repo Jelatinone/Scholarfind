@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -117,7 +118,7 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 		}
 	}
 
-	public static List<SearchTask> fromCommand(final CommandLine command, final String fromOption,
+	public static Collection<SearchTask> fromCommand(final CommandLine command, final String fromOption,
 			final String toOption) {
 		String[] fromValues = command.getOptionValues(fromOption);
 		String toValue = Optional.ofNullable(command.getOptionValue(toOption))
