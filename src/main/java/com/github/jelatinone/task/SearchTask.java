@@ -78,6 +78,8 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 				System.err.printf("Creating new file lock: %s\n", destination);
 				return new Object();
 			});
+			HtmlPage pageContent = Client
+					.<HtmlPage>getPage(TARGET_URI);
 			synchronized (lock) {
 				System.err.printf("Started search at: %s\n", TARGET_URI);
 				generator.writeStartObject();
@@ -85,15 +87,15 @@ public final class SearchTask implements Task<DomNode, Optional<String>> {
 				generator.writeStringField("date", date);
 				generator.writeFieldName("results");
 				generator.writeStartArray();
-				Client
-						.<HtmlPage>getPage(TARGET_URI)
+				pageContent
 						.querySelectorAll((".cb-link-blue"))
 						.stream()
 						.map(this::node)
 						.forEach((optional) -> optional.ifPresent((href) -> {
 							try {
-								System.err.printf("Found compatible URI at: %s\n", href);
-								generator.writeString(href);
+								String qualifiedURL = pageContent.getFullyQualifiedUrl(href).toString();
+								System.err.printf("Found compatible URI at: %s\n", qualifiedURL);
+								generator.writeString(qualifiedURL);
 							} catch (final IOException exception) {
 								throw new RuntimeException(exception);
 							}
