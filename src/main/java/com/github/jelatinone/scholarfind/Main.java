@@ -34,18 +34,21 @@ public final class Main {
 	public static void main(String... arguments) {
 		Option opt_helpMessage = new Option("help", "print a descriptive help message");
 		_config.addOption(opt_helpMessage);
+
 		Option opt_maxThreads = Option.builder("maxThreads")
 				.argName("with")
 				.desc("number of threads to run a given operation with")
 				.valueSeparator('=')
 				.get();
 		_config.addOption(opt_maxThreads);
+
 		Option opt_executorType = Option.builder("executorType")
 				.argName("as")
 				.desc("Type of executor to run a given operation with")
 				.converter((value) -> ExecutorType.valueOf(value.toUpperCase()))
 				.get();
 		_config.addOption(opt_executorType);
+
 		Option opt_logToFile = Option.builder("logFile")
 				.argName("file")
 				.hasArg()
@@ -56,7 +59,7 @@ public final class Main {
 
 		Option opt_task = Option.builder()
 				.longOpt("task")
-				.hasArg()
+				.hasArgs()
 				.desc("Defines a given task with arguments.")
 				.get();
 		_config.addOption(opt_task);
@@ -115,15 +118,17 @@ public final class Main {
 			_logger.fine(String.format("Executing [%s] tasks", _tasks.size()));
 			while (!_tasks.values().stream().allMatch(Future::isDone)) {
 				System.out.flush();
-				_tasks.forEach((Task, Future) -> {
-					String message = String.format(
-							"%s [%s] :: %s",
-							Task.getName(),
-							Math.floor(System.currentTimeMillis() / 1000 - initialTime),
-							Task.report());
-					_logger.fine(message);
-					System.out.println(message);
-				});
+				synchronized (_tasks) {
+					_tasks.forEach((Task, Future) -> {
+						String message = String.format(
+								"%s [%s] :: %s",
+								Task.getName(),
+								Math.floor(System.currentTimeMillis() / 1000 - initialTime),
+								Task.report());
+						_logger.fine(message);
+						System.out.println(message);
+					});
+				}
 			}
 		} finally {
 			_executor.close();
@@ -138,8 +143,9 @@ public final class Main {
 
 			Task<?, ?> task = kind.generator.apply(kindCommand);
 			Future<?> future = _executor.submit(task);
-
-			_tasks.put(task, future);
+			synchronized (_tasks) {
+				_tasks.put(task, future);
+			}
 		} catch (final ParseException exception) {
 			String message = String.format("Could not parse argument(s) : %s", exception.getMessage());
 			_logger.severe(message);
