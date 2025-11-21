@@ -185,12 +185,12 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 							if (!lastOk && ok) {
 								attempt.set(0);
 							}
-							lastOk = ok;
-							if (!lastOk) {
+							if (!ok) {
 								modify(State.RETRYING);
 							} else {
 								modify(State.OPERATING);
 							}
+							lastOk = ok;
 						} catch (Exception e) {
 							modify(State.FAILED);
 						}
