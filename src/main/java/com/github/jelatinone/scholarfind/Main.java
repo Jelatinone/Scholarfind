@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.Function;
 import java.util.logging.Logger;
 
 import org.apache.commons.cli.CommandLine;
@@ -40,6 +41,7 @@ public final class Main {
 				.valueSeparator('=')
 				.get();
 		configuredOptions.addOption(opt_maxThreads);
+
 		Option opt_executorType = Option.builder("executorType")
 				.argName("as")
 				.desc("Type of executor to run a given operation with")
@@ -54,11 +56,17 @@ public final class Main {
 				.get();
 		configuredOptions.addOption(opt_logToFile);
 
+		Option taskMarker = Option.builder()
+				.longOpt("task")
+				.hasArg()
+				.desc("Type of task <search, annotate, etc...>")
+				.get();
+		configuredOptions.addOption(taskMarker);
+
 		try {
+			_logger.fine(String.format("Supplied with command : %s", String.join(" ", arguments)));
 			CommandLine command = _parser.parse(configuredOptions, arguments);
-			command.getArgList().forEach((Argument) -> {
-				_logger.fine(String.format("Supplied with argument : %s", Argument));
-			});
+			_logger.fine(String.format("Parsed as command : %s", String.join(" ", command.getArgs())));
 			Integer maxThreads = command.<Integer>getParsedOptionValue(opt_maxThreads);
 			ExecutorType executorType = command.<ExecutorType>getParsedOptionValue(opt_executorType);
 			switch (executorType) {
@@ -78,22 +86,55 @@ public final class Main {
 					_executor = Executors.newVirtualThreadPerTaskExecutor();
 					break;
 			}
-		} catch (final ParseException exception) {
-			_logger.fine(String.format("Could not parse argument(s) : %s", exception.getMessage()));
-		}
 
+			String[] kinds = command.getOptionValues(taskMarker);
+
+			if (kinds == null) {
+				_logger.severe("Could not parse argument(s) : no runnable tasks found!");
+				return;
+			}
+
+			for (String kind : kinds) {
+				final Task<?, ?> task = TaskType
+						.valueOf(kind).generator
+						.apply(command);
+				final Future<?> future = _executor.submit(task);
+				_tasks.put(task, future);
+			}
+
+		} catch (final ParseException exception) {
+			String message = String.format("Could not parse argument(s) : %s", exception.getMessage());
+			_logger.severe(message);
+			exception.printStackTrace();
+		}
 		try {
 			_logger.fine(String.format("Executing [%s] tasks", _tasks.size()));
 			while (!_tasks.values().stream().allMatch(Future::isDone)) {
 				System.out.flush();
 				_tasks.forEach((Task, Future) -> {
-					String message = String.format("%s [%s] :: %s", Task.getName(), Task.getState(), Task.report());
+					String message = String.format(
+							"%s [%s] :: %s",
+							Task.getName(),
+							Task.getState(),
+							Task.report());
 					_logger.fine(message);
 					System.out.println(message);
 				});
 			}
 		} finally {
 			_executor.close();
+		}
+	}
+
+	static enum TaskType {
+		;
+
+		final String value;
+		final Function<CommandLine, Task<?, ?>> generator;
+
+		private TaskType(final @NonNull String value, final Function<CommandLine, Task<?, ?>> generator) {
+			this.value = value;
+			this.generator = generator;
 		}
 	}
 
