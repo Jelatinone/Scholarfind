@@ -141,7 +141,20 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 				.add(this);
 	}
 
-	private synchronized void modify(final @NonNull State state) {
+	/**
+	 * Modifies (safely) the current state of this `Task`.
+	 * 
+	 * @param state New state of task
+	 * @throws IllegalStateException When modifications are made to a
+	 *                               {@link State#FAILED failed} or
+	 *                               {@link State#COMPLETED completed} Task
+	 */
+	private synchronized void modify(final @NonNull State state) throws IllegalStateException {
+		final State currentState = _state.get();
+		if (currentState == State.FAILED || currentState == State.COMPLETED) {
+			throw new IllegalStateException(
+					String.format("Cannot modify the state of a %s Task!", currentState.name().toLowerCase()));
+		}
 		this._state.set(state);
 		_logger.fine(String.format("[%s] State Update :: %s", getName(), state.name()));
 	}
