@@ -181,10 +181,11 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 
 					case PRODUCING_RESULT -> {
 						try {
-							boolean currentOk = result(result);
-							if (!lastOk && currentOk) {
+							boolean ok = result(result);
+							if (!lastOk && ok) {
 								attempt.set(0);
 							}
+							lastOk = ok;
 							if (!lastOk) {
 								modify(State.RETRYING);
 							} else {
