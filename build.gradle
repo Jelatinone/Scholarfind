@@ -1,6 +1,7 @@
 plugins {
   id ('java')
   id ('application')
+  id ("io.freefair.lombok") version "8.6"
 }
 
 group = 'com.github.jelatinone'
@@ -19,7 +20,12 @@ dependencies {
   implementation ('commons-cli:commons-cli:1.10.0')
   implementation ("com.fasterxml.jackson.core:jackson-databind:2.0.1")
   implementation ("org.seleniumhq.selenium:selenium-java:4.38.0")
-  implementation ("org.jline:jline:3.26.1")
+
+  compileOnly ("org.projectlombok:lombok:1.18.42")
+	annotationProcessor ("org.projectlombok:lombok:1.18.42")
+	
+	testCompileOnly ("org.projectlombok:lombok:1.18.42")
+	testAnnotationProcessor ("org.projectlombok:lombok:1.18.42")
 }
 
 run {
