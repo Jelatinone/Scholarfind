@@ -26,6 +26,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
@@ -39,6 +41,7 @@ import org.w3c.dom.Node;
 public class SearchTask extends Task<DomNode, String> {
 	static Options _config = new Options();
 	static Logger _logger = Logger.getLogger(SearchTask.class.getName());
+	static final CommandLineParser _parser = new DefaultParser();
 
 	static Map<String, JsonGenerator> _generators = new ConcurrentHashMap<>();
 	static Map<String, AtomicInteger> _references = new ConcurrentHashMap<>();
@@ -82,24 +85,27 @@ public class SearchTask extends Task<DomNode, String> {
 		_config.addOption(opt_networkTimeout);
 	}
 
-	public SearchTask(final @NonNull CommandLine command) {
+	public SearchTask(final @NonNull String... arguments) {
 		super("SearchTask");
 		message("Initializing");
 
-		String sourceTarget = command.getOptionValue("from");
-		_source = sourceTarget;
-
-		String destinationTarget = command.getOptionValue("to");
-		_destination = destinationTarget != null ? destinationTarget : BASE_DESTINATION;
-
 		try {
+			CommandLine command = _parser.parse(_config, arguments);
+
+			String sourceTarget = command.getOptionValue("from");
+			_source = sourceTarget;
+
+			String destinationTarget = command.getOptionValue("to");
+			_destination = destinationTarget != null ? destinationTarget : BASE_DESTINATION;
+
 			Integer networkTimeout = command.getParsedOptionValue("timeout");
 			_timeout = networkTimeout != null ? networkTimeout : BASE_TIMEOUT;
+
+			_writer = acquireGenerator(destinationTarget);
 		} catch (final ParseException exception) {
 			_logger.severe(String.format("%s [%s] :: Failed to parse arguments", getName(), getState()));
 			_timeout = BASE_TIMEOUT;
 		}
-		_writer = acquireGenerator(destinationTarget);
 		message("Initialized");
 	}
 
@@ -116,24 +122,25 @@ public class SearchTask extends Task<DomNode, String> {
 			} else {
 				return mapper.createArrayNode();
 			}
-		} catch (final Exception e) {
-			throw new RuntimeException("Failed to parse existing JSON: " + file, e);
+		} catch (final Exception exception) {
+			throw new RuntimeException("Failed to parse existing JSON: " + file, exception);
 		}
 	}
 
 	private JsonGenerator acquireGenerator(final @NonNull String destination) {
+		final AtomicInteger _reference = _references.computeIfAbsent(destination, (target) -> new AtomicInteger());
+		_reference.incrementAndGet();
 		final JsonGenerator _generator = _generators.computeIfAbsent(destination, (target) -> {
 			try {
 				final JsonFactory factory = new JsonFactory();
 
 				final File file = new File(target);
 
-				final FileWriter writer = new FileWriter(file);
 				final ObjectMapper mapper = new ObjectMapper();
-
-				final JsonGenerator generator = factory.createJsonGenerator(writer);
-
 				final ArrayNode content = acquireContent(file, mapper);
+
+				final FileWriter writer = new FileWriter(file);
+				final JsonGenerator generator = factory.createJsonGenerator(writer);
 
 				generator.writeStartObject();
 				generator.writeFieldName("results");
@@ -224,7 +231,7 @@ public class SearchTask extends Task<DomNode, String> {
 					.setDownloadImages(false);
 			Client
 					.getOptions()
-					.setTimeout(3500);
+					.setTimeout(_timeout);
 			Client
 					.getOptions()
 					.setCssEnabled(false);
@@ -237,14 +244,13 @@ public class SearchTask extends Task<DomNode, String> {
 			Client
 					.getOptions()
 					.setPrintContentOnFailingStatusCode(false);
-			message("Reading page content");
 			final HtmlPage pageContent = Client
 					.<HtmlPage>getPage(_source);
 			message("Retrieving page anchor tags");
 			final List<DomNode> pageAnchors = pageContent.querySelectorAll(("a"))
 					.stream()
 					.filter(DomNode::hasAttributes)
-					.filter(Objects::isNull)
+					.filter(Objects::nonNull)
 					.toList();
 			message(String.format("Found %s anchors", pageAnchors.size()));
 			return pageAnchors;
@@ -261,9 +267,10 @@ public class SearchTask extends Task<DomNode, String> {
 		synchronized (_writer) {
 			_writer.writeEndArray();
 			_writer.writeEndObject();
+			_writer.flush();
 		}
 		releaseGenerator(_destination);
-		message("Closed");
+		message("Finished Execution");
 	}
 
 	@Override
@@ -292,6 +299,15 @@ public class SearchTask extends Task<DomNode, String> {
 	@Override
 	protected synchronized void restart() {
 		message("Restarting");
+		synchronized (_writer) {
+			try {
+				_writer.writeEndArray();
+				_writer.writeEndObject();
+				_writer.flush();
+			} catch (final IOException exception) {
+				_logger.severe(String.format("%s [%s] :: Failed to safely restart", getName(), getState()));
+			}
+		}
 		releaseGenerator(_destination);
 		_writer = acquireGenerator(_destination);
 	}

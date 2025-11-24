@@ -186,6 +186,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 				switch (_state.get()) {
 					case CREATED -> {
 						modify(State.AWAITING_DEPENDENCIES);
+						break;
 					}
 
 					case AWAITING_DEPENDENCIES -> {
@@ -194,11 +195,13 @@ public abstract class Task<Consumes, Produces extends Serializable>
 								.toArray(CompletableFuture[]::new);
 						CompletableFuture.allOf(dependents).join();
 						modify(State.COLLECTING);
+						break;
 					}
 
 					case COLLECTING -> {
 						iterableData = collect().listIterator();
 						modify(State.OPERATING);
+						break;
 					}
 
 					case OPERATING -> {
@@ -208,6 +211,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 						}
 						result = operate(operand = iterableData.next());
 						modify(State.PRODUCING_RESULT);
+						break;
 					}
 
 					case PRODUCING_RESULT -> {
@@ -221,6 +225,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 							modify(State.OPERATING);
 						}
 						lastOk = ok;
+						break;
 					}
 
 					case RETRYING -> {
@@ -228,14 +233,17 @@ public abstract class Task<Consumes, Produces extends Serializable>
 						if (currentAttempt >= MAX_RETRIES) {
 							iterableData.previous();
 							modify(State.OPERATING);
+						} else {
+							modify(State.PRODUCING_RESULT);
 						}
-						modify(State.FAILED);
+						break;
 					}
 
 					case RESTARTING -> {
 						_attempt.set(0);
 						restart();
 						modify(State.AWAITING_DEPENDENCIES);
+						break;
 					}
 
 					case COMPLETED, FAILED -> {

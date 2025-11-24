@@ -35,21 +35,27 @@ public final class Main {
 	public static void main(String... arguments) {
 		Option opt_helpMessage = new Option("help", "print a descriptive help message");
 		_config.addOption(opt_helpMessage);
-		Option opt_maxThreads = Option.builder("maxThreads")
-				.argName("with")
+		Option opt_maxThreads = Option.builder()
+				.longOpt("maxThreads")
+				.option("with")
+				.hasArg()
 				.desc("number of threads to run a given operation with")
+				.converter(Integer::valueOf)
 				.valueSeparator('=')
 				.get();
 		_config.addOption(opt_maxThreads);
-		Option opt_executorType = Option.builder("executorType")
-				.argName("as")
+		Option opt_executorType = Option.builder()
+				.longOpt("executorType")
+				.option("using")
+				.hasArg()
 				.desc("Type of executor to run a given operation with")
-				.valueSeparator('=')
 				.converter((value) -> ExecutorType.valueOf(value.toUpperCase()))
 				.get();
 		_config.addOption(opt_executorType);
 		Option opt_task = Option.builder()
 				.longOpt("task")
+				.option("t")
+				.valueSeparator(',')
 				.hasArgs()
 				.desc("Defines a given task with arguments.")
 				.get();
@@ -107,50 +113,56 @@ public final class Main {
 			exception.printStackTrace();
 		}
 		try {
-			long initialTime = System.currentTimeMillis() / 1000;
+			System.out.flush();
 			_logger.fine(String.format("Main :: Executing [%s] tasks", _tasks.size()));
-			while (!_tasks.values().stream().allMatch(Future::isDone)) {
-				System.out.flush();
-				synchronized (_tasks) {
-					_tasks.forEach((Task, Future) -> {
-						String message = String.format(
-								"%s [%s] :: %s",
-								Task.getName(),
-								Math.floor(System.currentTimeMillis() / 1000 - initialTime),
-								Task.report());
-						_logger.fine(message);
-						System.out.println(message);
-					});
-				}
-			}
+			do {
+				update();
+				Thread.sleep(10);
+			} while (!_tasks.values().stream().allMatch(Future::isDone));
+			update();
+		} catch (final InterruptedException exception) {
+			_logger.fine(String.format("Main :: Interrupted", _tasks.size()));
 		} finally {
 			_executor.close();
 		}
 	}
 
+	private static void update() {
+		System.out.print("\033[H\033[2J");
+		System.out.flush();
+		synchronized (_tasks) {
+			for (var task : _tasks.keySet()) {
+				System.out.println(task.report());
+			}
+		}
+	}
+
 	private static void submit(List<String> kindArguments) {
 		String[] kindBlock = kindArguments.toArray(String[]::new);
-		try {
-			CommandLine kindCommand = _parser.parse(_config, kindBlock);
-			TaskKind kind = TaskKind.valueOf(kindArguments.get(0).toUpperCase());
 
-			Task<?, ?> task = kind.generator.apply(kindCommand);
-			Future<?> future = _executor.submit(task);
-			synchronized (_tasks) {
-				_tasks.put(task, future);
+		TaskKind kind = TaskKind.valueOf(kindArguments.get(0).toUpperCase());
+
+		Task<?, ?> task = kind.generator.apply(kindBlock);
+		Future<?> future = _executor.submit(() -> {
+			task.run();
+			try {
+				task.close();
+			} catch (final Exception exception) {
+				_logger.fine(String.format("Main :: Failed to close %s", task.getName()));
+				exception.printStackTrace();
 			}
-		} catch (final ParseException exception) {
-			_logger.severe(String.format("Could not parse argument(s) : %s", exception.getMessage()));
-			exception.printStackTrace();
+		});
+		synchronized (_tasks) {
+			_tasks.put(task, future);
 		}
 	}
 
 	static enum TaskKind {
 		SEARCH(SearchTask::new);
 
-		final Function<CommandLine, Task<?, ?>> generator;
+		final Function<String[], Task<?, ?>> generator;
 
-		private TaskKind(final Function<CommandLine, Task<?, ?>> generator) {
+		private TaskKind(final Function<String[], Task<?, ?>> generator) {
 			this.generator = generator;
 		}
 	}
