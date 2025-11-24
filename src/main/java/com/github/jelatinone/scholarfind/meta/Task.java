@@ -45,6 +45,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 
 	Collection<Task<?, ?>> _dependencies;
 	Collection<Task<?, ?>> _dependents;
+	Collection<Runnable> _listeners;
 
 	AtomicReference<State> _state;
 	CompletableFuture<Void> _completable;
@@ -73,6 +74,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 
 		_dependencies = new ArrayList<>();
 		_dependents = new ArrayList<>();
+		_listeners = new ArrayList<>();
 
 		_logger.fine(String.format("%s [%s] :: Task Created!", getName(), getState()));
 	}
@@ -104,34 +106,13 @@ public abstract class Task<Consumes, Produces extends Serializable>
 	protected abstract boolean result(final Produces operand);
 
 	/**
-	 * Modifies the current status message of this {@link #run() operation} of this
-	 * `Task`
-	 * with a descriptive message.
-	 * 
-	 * @param message Descriptive message of current operation of this Task
-	 */
-	protected synchronized void message(final @NonNull String message) {
-		this.message = message;
-	}
-
-	/**
 	 * Restarts the current `Task`, performs necessary clean-up operations on this
 	 * instance before restarting.
 	 * 
 	 * @apiNote Called only during {@link #run() operation} of this Task when a
-	 *          {@link #modify(State) state modification} has occurred
+	 *          {@link #setState(State) state modification} has occurred
 	 */
 	protected abstract void restart();
-
-	/**
-	 * Returns a formatted status of the this `Task` with the Name, State, and
-	 * {@link #update() Message}.
-	 * 
-	 * @return Formatted status message
-	 */
-	public String report() {
-		return String.format("%s [%s] :: %s", getName(), getState(), message);
-	}
 
 	/**
 	 * Provides the {@link CompletableFuture Future} of this `Task`
@@ -141,7 +122,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 	 * 
 	 * @return Completable future of the current operation
 	 */
-	public CompletableFuture<Void> on() {
+	public CompletableFuture<Void> completable() {
 		return _completable;
 	}
 
@@ -150,9 +131,9 @@ public abstract class Task<Consumes, Produces extends Serializable>
 	 * <em>before<em> running any {@link #operate(Serializable) operations} on the
 	 * {@link #collect() data} of this task
 	 * 
-	 * @param dependent Task to depend on
+	 * @param dependent Task to add as dependent
 	 */
-	public synchronized void with(final Task<?, ?> dependent) {
+	public synchronized void withDependent(final @NonNull Task<?, ?> dependent) {
 		_dependents
 				.add(dependent);
 		dependent._dependencies
@@ -160,21 +141,14 @@ public abstract class Task<Consumes, Produces extends Serializable>
 	}
 
 	/**
-	 * Modifies (safely) the current state of this `Task`.
+	 * Adds a message update listener `Runnable` to this `Task`, which
+	 * {@link Runnable#run() updates} on
+	 * each call to {@link #setMessage(String) update message}.
 	 * 
-	 * @param state New state of task
-	 * @throws IllegalStateException When modifications are made to a
-	 *                               {@link State#FAILED failed} or
-	 *                               {@link State#COMPLETED completed} Task
+	 * @param listener Listener to add as listener
 	 */
-	protected synchronized void modify(final @NonNull State state) throws IllegalStateException {
-		final State currentState = _state.get();
-		if (currentState == State.FAILED || currentState == State.COMPLETED) {
-			throw new IllegalStateException(
-					String.format("%s [%s] :: Illegal State Modification", getName(), state.name()));
-		}
-		this._state.set(state);
-		_logger.fine(String.format("%s [%s] :: State Update", getName(), state.name()));
+	public synchronized void withListener(final @NonNull Runnable listener) {
+		_listeners.add(listener);
 	}
 
 	@Override
@@ -185,32 +159,32 @@ public abstract class Task<Consumes, Produces extends Serializable>
 			try {
 				switch (_state.get()) {
 					case CREATED -> {
-						modify(State.AWAITING_DEPENDENCIES);
+						setState(State.AWAITING_DEPENDENCIES);
 						break;
 					}
 
 					case AWAITING_DEPENDENCIES -> {
 						CompletableFuture<?>[] dependents = _dependents.stream()
-								.map(Task::on)
+								.map(Task::completable)
 								.toArray(CompletableFuture[]::new);
 						CompletableFuture.allOf(dependents).join();
-						modify(State.COLLECTING);
+						setState(State.COLLECTING);
 						break;
 					}
 
 					case COLLECTING -> {
 						iterableData = collect().listIterator();
-						modify(State.OPERATING);
+						setState(State.OPERATING);
 						break;
 					}
 
 					case OPERATING -> {
 						if (!iterableData.hasNext()) {
-							modify(State.COMPLETED);
+							setState(State.COMPLETED);
 							break;
 						}
 						result = operate(operand = iterableData.next());
-						modify(State.PRODUCING_RESULT);
+						setState(State.PRODUCING_RESULT);
 						break;
 					}
 
@@ -220,9 +194,9 @@ public abstract class Task<Consumes, Produces extends Serializable>
 							_attempt.set(0);
 						}
 						if (!ok) {
-							modify(State.RETRYING);
+							setState(State.RETRYING);
 						} else {
-							modify(State.OPERATING);
+							setState(State.OPERATING);
 						}
 						lastOk = ok;
 						break;
@@ -232,9 +206,9 @@ public abstract class Task<Consumes, Produces extends Serializable>
 						final int currentAttempt = _attempt.getAndIncrement();
 						if (currentAttempt >= MAX_RETRIES) {
 							iterableData.previous();
-							modify(State.OPERATING);
+							setState(State.OPERATING);
 						} else {
-							modify(State.PRODUCING_RESULT);
+							setState(State.PRODUCING_RESULT);
 						}
 						break;
 					}
@@ -242,7 +216,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 					case RESTARTING -> {
 						_attempt.set(0);
 						restart();
-						modify(State.AWAITING_DEPENDENCIES);
+						setState(State.AWAITING_DEPENDENCIES);
 						break;
 					}
 
@@ -257,12 +231,42 @@ public abstract class Task<Consumes, Produces extends Serializable>
 					}
 				}
 			} catch (final Exception exception) {
-				modify(State.FAILED);
+				setState(State.FAILED);
 				_completable.completeExceptionally(exception);
 				_logger.severe(String.format("%s [%s] :: %s", getName(), exception.getMessage()));
 				exception.printStackTrace();
 			}
 		}
+	}
+
+	/**
+	 * Modifies (safely) the current state of this `Task`.
+	 * 
+	 * @param state New state of task
+	 * @throws IllegalStateException When modifications are made to a
+	 *                               {@link State#FAILED failed} or
+	 *                               {@link State#COMPLETED completed} Task
+	 */
+	protected synchronized void setState(final @NonNull State state) throws IllegalStateException {
+		final State currentState = _state.get();
+		if (currentState == State.FAILED || currentState == State.COMPLETED) {
+			throw new IllegalStateException(
+					String.format("%s [%s] :: Illegal State Modification", getName(), state.name()));
+		}
+		this._state.set(state);
+		_logger.fine(String.format("%s [%s] :: State Update", getName(), state.name()));
+	}
+
+	/**
+	 * Modifies the current status message of this {@link #run() operation} of this
+	 * `Task`
+	 * with a descriptive message.
+	 * 
+	 * @param message Descriptive message of current operation of this Task
+	 */
+	protected synchronized void setMessage(final @NonNull String message) {
+		this.message = message;
+		_listeners.forEach(Runnable::run);
 	}
 
 	/**
@@ -299,5 +303,15 @@ public abstract class Task<Consumes, Produces extends Serializable>
 	 */
 	public Produces getProduced() {
 		return result;
+	}
+
+	/**
+	 * Provides a formatted status of the this `Task` with the Name, State, and
+	 * {@link #update() Message}.
+	 * 
+	 * @return Formatted status message
+	 */
+	public String getReport() {
+		return String.format("%s [%s] :: %s", getName(), getState(), message);
 	}
 }

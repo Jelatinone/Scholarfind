@@ -3,6 +3,7 @@ package com.github.jelatinone.scholarfind;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -113,15 +114,13 @@ public final class Main {
 			exception.printStackTrace();
 		}
 		try {
-			System.out.flush();
-			_logger.fine(String.format("Main :: Executing [%s] tasks", _tasks.size()));
-			do {
-				update();
-				Thread.sleep(10);
-			} while (!_tasks.values().stream().allMatch(Future::isDone));
 			update();
-		} catch (final InterruptedException exception) {
-			_logger.fine(String.format("Main :: Interrupted", _tasks.size()));
+			_logger.fine(String.format("Main :: Executing [%s] tasks", _tasks.size()));
+			CompletableFuture<?>[] tasks = _tasks.keySet()
+					.stream()
+					.map(Task::completable)
+					.toArray(CompletableFuture[]::new);
+			CompletableFuture.allOf(tasks).join();
 		} finally {
 			_executor.close();
 		}
@@ -132,7 +131,7 @@ public final class Main {
 		System.out.flush();
 		synchronized (_tasks) {
 			for (var task : _tasks.keySet()) {
-				System.out.println(task.report());
+				System.out.println(task.getReport());
 			}
 		}
 	}
@@ -152,6 +151,7 @@ public final class Main {
 				exception.printStackTrace();
 			}
 		});
+		task.withListener(Main::update);
 		synchronized (_tasks) {
 			_tasks.put(task, future);
 		}

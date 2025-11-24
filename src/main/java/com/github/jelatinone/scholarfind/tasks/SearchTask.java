@@ -87,7 +87,7 @@ public class SearchTask extends Task<DomNode, String> {
 
 	public SearchTask(final @NonNull String... arguments) {
 		super("SearchTask");
-		message("Initializing");
+		setMessage("Initializing");
 
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
@@ -106,7 +106,7 @@ public class SearchTask extends Task<DomNode, String> {
 			_logger.severe(String.format("%s [%s] :: Failed to parse arguments", getName(), getState()));
 			_timeout = BASE_TIMEOUT;
 		}
-		message("Initialized");
+		setMessage("Initialized");
 	}
 
 	private ArrayNode acquireContent(File file, ObjectMapper mapper) throws IOException {
@@ -225,7 +225,7 @@ public class SearchTask extends Task<DomNode, String> {
 
 	protected synchronized List<DomNode> collect() {
 		try (WebClient Client = new WebClient(BrowserVersion.BEST_SUPPORTED)) {
-			message("Configuring Collection");
+			setMessage("Configuring Collection");
 			Client
 					.getOptions()
 					.setDownloadImages(false);
@@ -246,16 +246,16 @@ public class SearchTask extends Task<DomNode, String> {
 					.setPrintContentOnFailingStatusCode(false);
 			final HtmlPage pageContent = Client
 					.<HtmlPage>getPage(_source);
-			message("Retrieving page anchor tags");
+			setMessage("Retrieving page anchor tags");
 			final List<DomNode> pageAnchors = pageContent.querySelectorAll(("a"))
 					.stream()
 					.filter(DomNode::hasAttributes)
 					.filter(Objects::nonNull)
 					.toList();
-			message(String.format("Found %s anchors", pageAnchors.size()));
+			setMessage(String.format("Found %s anchors", pageAnchors.size()));
 			return pageAnchors;
 		} catch (final IOException exception) {
-			modify(State.FAILED);
+			setState(State.FAILED);
 			_logger.severe(String.format("%s [%s] :: Failed to retrieve source content", getName(), getState()));
 			exception.printStackTrace();
 			return List.of();
@@ -270,14 +270,14 @@ public class SearchTask extends Task<DomNode, String> {
 			_writer.flush();
 		}
 		releaseGenerator(_destination);
-		message("Finished Execution");
+		setMessage("Finished Execution");
 	}
 
 	@Override
 	protected String operate(final @NonNull DomNode operand) {
 		Node hrefNode = operand.getAttributes().getNamedItem("href");
 		String hrefAttribute = hrefNode != null ? hrefNode.getTextContent() : null;
-		message(String.format("Reading operand: %s", hrefAttribute));
+		setMessage(String.format("Reading operand: %s", hrefAttribute));
 		return hrefAttribute;
 	}
 
@@ -285,7 +285,7 @@ public class SearchTask extends Task<DomNode, String> {
 	protected boolean result(@NonNull String operand) {
 		synchronized (_writer) {
 			try {
-				message(String.format("Writing result: %s", operand));
+				setMessage(String.format("Writing result: %s", operand));
 				_writer.writeString(operand);
 				return true;
 			} catch (final IOException exception) {
@@ -298,7 +298,7 @@ public class SearchTask extends Task<DomNode, String> {
 
 	@Override
 	protected synchronized void restart() {
-		message("Restarting");
+		setMessage("Restarting");
 		synchronized (_writer) {
 			try {
 				_writer.writeEndArray();
