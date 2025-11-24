@@ -14,6 +14,8 @@ public enum State {
 
 	CREATED,
 
+	AWAITING_DEPENDENCIES,
+
 	COLLECTING,
 
 	OPERATING,

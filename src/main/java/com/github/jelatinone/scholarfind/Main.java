@@ -18,6 +18,7 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 
 import com.github.jelatinone.scholarfind.meta.Task;
+import com.github.jelatinone.scholarfind.tasks.SearchTask;
 
 import lombok.AccessLevel;
 import lombok.experimental.FieldDefaults;
@@ -34,40 +35,29 @@ public final class Main {
 	public static void main(String... arguments) {
 		Option opt_helpMessage = new Option("help", "print a descriptive help message");
 		_config.addOption(opt_helpMessage);
-
 		Option opt_maxThreads = Option.builder("maxThreads")
 				.argName("with")
 				.desc("number of threads to run a given operation with")
 				.valueSeparator('=')
 				.get();
 		_config.addOption(opt_maxThreads);
-
 		Option opt_executorType = Option.builder("executorType")
 				.argName("as")
 				.desc("Type of executor to run a given operation with")
+				.valueSeparator('=')
 				.converter((value) -> ExecutorType.valueOf(value.toUpperCase()))
 				.get();
 		_config.addOption(opt_executorType);
-
-		Option opt_logToFile = Option.builder("logFile")
-				.argName("file")
-				.hasArg()
-				.valueSeparator(' ')
-				.desc("file to log resulting data to")
-				.get();
-		_config.addOption(opt_logToFile);
-
 		Option opt_task = Option.builder()
 				.longOpt("task")
 				.hasArgs()
 				.desc("Defines a given task with arguments.")
 				.get();
 		_config.addOption(opt_task);
-
 		try {
-			_logger.fine(String.format("Supplied with command : %s", String.join(" ", arguments)));
+			_logger.fine(String.format("Main :: Supplied with command : %s", String.join(" ", arguments)));
 			CommandLine command = _parser.parse(_config, arguments);
-			_logger.fine(String.format("Parsed as command : %s", String.join(" ", command.getArgs())));
+			_logger.fine(String.format("Main :: Parsed as command : %s", String.join(" ", command.getArgs())));
 			Integer maxThreads = command.<Integer>getParsedOptionValue(opt_maxThreads);
 			ExecutorType executorType = command.<ExecutorType>getParsedOptionValue(opt_executorType);
 			switch (executorType) {
@@ -83,14 +73,18 @@ public final class Main {
 					_executor = Executors.newScheduledThreadPool(maxThreads);
 					break;
 
+				case VIRTUAL:
+					// _executor = Executors.newVirtualThreadPerTaskExecutor();
+					// break;
+
 				default:
-					_executor = Executors.newVirtualThreadPerTaskExecutor();
+					_executor = Executors.newCachedThreadPool();
 					break;
 			}
 
 			String[] kindArguments = command.getOptionValues(opt_task);
 			if (kindArguments == null) {
-				_logger.severe("Could not parse argument(s) : no runnable tasks found!");
+				_logger.severe("Main :: Could not parse argument(s) : no runnable tasks found!");
 				return;
 			}
 
@@ -109,13 +103,12 @@ public final class Main {
 			}
 			submit(kindBlock);
 		} catch (final ParseException exception) {
-			String message = String.format("Could not parse argument(s) : %s", exception.getMessage());
-			_logger.severe(message);
+			_logger.severe(String.format("Main :: Could not parse argument(s) : %s", exception.getMessage()));
 			exception.printStackTrace();
 		}
 		try {
 			long initialTime = System.currentTimeMillis() / 1000;
-			_logger.fine(String.format("Executing [%s] tasks", _tasks.size()));
+			_logger.fine(String.format("Main :: Executing [%s] tasks", _tasks.size()));
 			while (!_tasks.values().stream().allMatch(Future::isDone)) {
 				System.out.flush();
 				synchronized (_tasks) {
@@ -147,15 +140,13 @@ public final class Main {
 				_tasks.put(task, future);
 			}
 		} catch (final ParseException exception) {
-			String message = String.format("Could not parse argument(s) : %s", exception.getMessage());
-			_logger.severe(message);
-			System.out.println(message);
+			_logger.severe(String.format("Could not parse argument(s) : %s", exception.getMessage()));
 			exception.printStackTrace();
 		}
 	}
 
 	static enum TaskKind {
-		;
+		SEARCH(SearchTask::new);
 
 		final Function<CommandLine, Task<?, ?>> generator;
 

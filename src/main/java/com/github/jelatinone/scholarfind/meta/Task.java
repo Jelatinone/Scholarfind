@@ -1,6 +1,5 @@
 package com.github.jelatinone.scholarfind.meta;
 
-import java.io.Closeable;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -14,6 +13,7 @@ import java.util.logging.Logger;
 import lombok.AccessLevel;
 import lombok.NonNull;
 import lombok.experimental.FieldDefaults;
+import lombok.experimental.NonFinal;
 
 /**
  * 
@@ -34,24 +34,30 @@ import lombok.experimental.FieldDefaults;
  * 
  * @author Cody Washington
  */
-@FieldDefaults(level = AccessLevel.PROTECTED)
-public abstract class Task<Consumes extends @NonNull Serializable, Produces extends @NonNull Serializable>
-		implements Runnable, Closeable {
-	final static Logger _logger = Logger.getLogger(Task.class.getName());
-	final static Integer _maxRetry = 3;
+@FieldDefaults(level = AccessLevel.PROTECTED, makeFinal = true)
+public abstract class Task<Consumes, Produces extends Serializable>
+		implements Runnable, AutoCloseable {
+	static Logger _logger = Logger.getLogger(Task.class.getName());
 
-	final String _name;
+	static Integer MAX_RETRIES = 3;
 
-	final Collection<Task<?, ?>> _dependencies;
-	final Collection<Task<?, ?>> _dependents;
+	String _name;
 
-	final AtomicReference<State> _state;
-	final CompletableFuture<Void> _completable;
+	Collection<Task<?, ?>> _dependencies;
+	Collection<Task<?, ?>> _dependents;
 
+	AtomicReference<State> _state;
+	CompletableFuture<Void> _completable;
+	AtomicInteger _attempt;
+
+	@NonFinal
 	Consumes operand = null;
+
+	@NonFinal
 	Produces result = null;
 
-	AtomicInteger attempt;
+	@NonFinal
+	String message = null;
 
 	/**
 	 * Creates a new abstract Task
@@ -61,14 +67,14 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 	public Task(final @NonNull String name) {
 		_name = name;
 
-		attempt = new AtomicInteger();
+		_attempt = new AtomicInteger();
 		_state = new AtomicReference<State>(State.CREATED);
 		_completable = new CompletableFuture<>();
 
 		_dependencies = new ArrayList<>();
 		_dependents = new ArrayList<>();
 
-		_logger.fine(String.format("Created new Task :: %s", getName()));
+		_logger.fine(String.format("%s [%s] :: Task Created!", getName(), getState()));
 	}
 
 	/**
@@ -98,12 +104,24 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 	protected abstract boolean result(final Produces operand);
 
 	/**
-	 * Gives the current status of the {@link #run() operation} of this `Task` as a
-	 * descriptive message.
+	 * Modifies the current status message of this {@link #run() operation} of this
+	 * `Task`
+	 * with a descriptive message.
 	 * 
-	 * @return Descriptive message of current operation
+	 * @param message Descriptive message of current operation of this Task
 	 */
-	protected abstract String update();
+	protected synchronized void message(final @NonNull String message) {
+		this.message = message;
+	}
+
+	/**
+	 * Restarts the current `Task`, performs necessary clean-up operations on this
+	 * instance before restarting.
+	 * 
+	 * @apiNote Called only during {@link #run() operation} of this Task when a
+	 *          {@link #modify(State) state modification} has occurred
+	 */
+	protected abstract void restart();
 
 	/**
 	 * Returns a formatted status of the this `Task` with the Name, State, and
@@ -112,7 +130,7 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 	 * @return Formatted status message
 	 */
 	public String report() {
-		return String.format("%s :: %s", _name, update());
+		return String.format("%s [%s] :: %s", getName(), getState(), message);
 	}
 
 	/**
@@ -149,78 +167,75 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 	 *                               {@link State#FAILED failed} or
 	 *                               {@link State#COMPLETED completed} Task
 	 */
-	private synchronized void modify(final @NonNull State state) throws IllegalStateException {
+	protected synchronized void modify(final @NonNull State state) throws IllegalStateException {
 		final State currentState = _state.get();
 		if (currentState == State.FAILED || currentState == State.COMPLETED) {
 			throw new IllegalStateException(
-					String.format("Cannot modify the state of a %s Task!", currentState.name().toLowerCase()));
+					String.format("%s [%s] :: Illegal State Modification", getName(), state.name()));
 		}
 		this._state.set(state);
-		_logger.fine(String.format("[%s] State Update :: %s", getName(), state.name()));
+		_logger.fine(String.format("%s [%s] :: State Update", getName(), state.name()));
 	}
 
 	@Override
 	public synchronized void run() {
-		try {
-			ListIterator<Consumes> collectedData = null;
-			boolean lastOk = true;
-			while (!_completable.isDone()) {
+		ListIterator<Consumes> iterableData = null;
+		boolean lastOk = true;
+		while (!_completable.isDone()) {
+			try {
 				switch (_state.get()) {
 					case CREATED -> {
+						modify(State.AWAITING_DEPENDENCIES);
+					}
+
+					case AWAITING_DEPENDENCIES -> {
+						CompletableFuture<?>[] dependents = _dependents.stream()
+								.map(Task::on)
+								.toArray(CompletableFuture[]::new);
+						CompletableFuture.allOf(dependents).join();
 						modify(State.COLLECTING);
 					}
 
 					case COLLECTING -> {
-						try {
-							collectedData = collect().listIterator();
-							modify(State.OPERATING);
-						} catch (final Exception exception) {
-							modify(State.FAILED);
-						}
+						iterableData = collect().listIterator();
+						modify(State.OPERATING);
 					}
 
 					case OPERATING -> {
-						if (!collectedData.hasNext()) {
+						if (!iterableData.hasNext()) {
 							modify(State.COMPLETED);
 							break;
 						}
-						try {
-							result = operate(operand = collectedData.next());
-							modify(State.PRODUCING_RESULT);
-						} catch (final Exception exception) {
-							modify(State.FAILED);
-						}
+						result = operate(operand = iterableData.next());
+						modify(State.PRODUCING_RESULT);
 					}
 
 					case PRODUCING_RESULT -> {
-						try {
-							boolean ok = result(result);
-							if (!lastOk && ok) {
-								attempt.set(0);
-							}
-							if (!ok) {
-								modify(State.RETRYING);
-							} else {
-								modify(State.OPERATING);
-							}
-							lastOk = ok;
-						} catch (Exception e) {
-							modify(State.FAILED);
+						boolean ok = result(result);
+						if (!lastOk && ok) {
+							_attempt.set(0);
 						}
+						if (!ok) {
+							modify(State.RETRYING);
+						} else {
+							modify(State.OPERATING);
+						}
+						lastOk = ok;
 					}
 
 					case RETRYING -> {
-						final int currentAttempt = attempt.get();
-						if (currentAttempt >= _maxRetry) {
-							attempt.incrementAndGet();
-							collectedData.previous();
+						final int currentAttempt = _attempt.getAndIncrement();
+						if (currentAttempt >= MAX_RETRIES) {
+							iterableData.previous();
 							modify(State.OPERATING);
 						}
 						modify(State.FAILED);
 					}
 
 					case RESTARTING -> {
-						modify(State.COLLECTING);
+						_attempt.set(0);
+						restart();
+						modify(State.AWAITING_DEPENDENCIES);
 					}
 
 					case COMPLETED, FAILED -> {
@@ -230,13 +245,15 @@ public abstract class Task<Consumes extends @NonNull Serializable, Produces exte
 
 					default -> {
 						_completable.complete(null);
-						throw new UnsupportedOperationException("Invalid State!");
+						throw new IllegalStateException("Invalid State Accessed");
 					}
 				}
+			} catch (final Exception exception) {
+				modify(State.FAILED);
+				_completable.completeExceptionally(exception);
+				_logger.severe(String.format("%s [%s] :: %s", getName(), exception.getMessage()));
+				exception.printStackTrace();
 			}
-		} catch (final Exception exception) {
-			_logger.fine(String.format("[%s] Critical Failure :: %s", getName(), exception.getMessage()));
-			exception.printStackTrace();
 		}
 	}
 

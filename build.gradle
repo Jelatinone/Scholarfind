@@ -12,7 +12,7 @@ repositories {
 }
 
 application {
-    mainClass = 'com.github.jelatinone.Main'
+    mainClass = 'com.github.jelatinone.scholarfind.Main'
 }
 
 dependencies {
@@ -26,10 +26,6 @@ dependencies {
 	
 	testCompileOnly ("org.projectlombok:lombok:1.18.42")
 	testAnnotationProcessor ("org.projectlombok:lombok:1.18.42")
-}
-
-run {
-  standardInput = System.in
 }
 
 test {
