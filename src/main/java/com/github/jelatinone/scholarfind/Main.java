@@ -81,6 +81,7 @@ public final class Main {
 					break;
 
 				case VIRTUAL:
+					// Experimental Language Feature
 					// _executor = Executors.newVirtualThreadPerTaskExecutor();
 					// break;
 
@@ -97,14 +98,15 @@ public final class Main {
 
 			List<String> kindBlock = new ArrayList<>();
 			for (final String kindArgument : kindArguments) {
-				TaskKind maybeKind;
+				TaskKind maybeKind = null;
 				try {
-					maybeKind = TaskKind.valueOf(kindArgument);
-				} catch (final IllegalArgumentException exception) {
-					maybeKind = null;
+					maybeKind = TaskKind.valueOf(kindArgument.toUpperCase());
+				} catch (final IllegalArgumentException ignored) {
 				}
+
 				if (maybeKind != null && !kindBlock.isEmpty()) {
 					submit(kindBlock);
+					kindBlock.clear();
 				}
 				kindBlock.add(kindArgument);
 			}

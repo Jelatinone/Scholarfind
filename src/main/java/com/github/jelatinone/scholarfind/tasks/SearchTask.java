@@ -122,7 +122,7 @@ public class SearchTask extends Task<DomNode, String> {
 			} else {
 				return mapper.createArrayNode();
 			}
-		} catch (final Exception exception) {
+		} catch (final IOException exception) {
 			throw new RuntimeException("Failed to parse existing JSON: " + file, exception);
 		}
 	}
