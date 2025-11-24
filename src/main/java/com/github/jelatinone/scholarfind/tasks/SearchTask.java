@@ -39,12 +39,12 @@ import org.w3c.dom.Node;
 
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class SearchTask extends Task<DomNode, String> {
-	static Options _config = new Options();
-	static Logger _logger = Logger.getLogger(SearchTask.class.getName());
+	static final Options _config = new Options();
+	static final Logger _logger = Logger.getLogger(SearchTask.class.getName());
 	static final CommandLineParser _parser = new DefaultParser();
 
-	static Map<String, JsonGenerator> _generators = new ConcurrentHashMap<>();
-	static Map<String, AtomicInteger> _references = new ConcurrentHashMap<>();
+	static final Map<String, JsonGenerator> _generators = new ConcurrentHashMap<>();
+	static final Map<String, AtomicInteger> _references = new ConcurrentHashMap<>();
 
 	static String BASE_DESTINATION = "output/search-results_%s.json";
 	static Integer BASE_TIMEOUT = 3500;
@@ -59,21 +59,7 @@ public class SearchTask extends Task<DomNode, String> {
 	Integer _timeout;
 
 	static {
-		Option opt_sourceTarget = Option.builder()
-				.longOpt("from")
-				.hasArg()
-				.valueSeparator('|')
-				.required()
-				.desc("location to pull consumable source data from")
-				.get();
-		_config.addOption(opt_sourceTarget);
-		Option opt_destinationTarget = Option.builder()
-				.longOpt("to")
-				.hasArg()
-				.valueSeparator('|')
-				.desc("location to push resulting produced data to")
-				.get();
-		_config.addOption(opt_destinationTarget);
+		_config.addOptions(Task.BASE_CONFIGURATION);
 		Option opt_networkTimeout = Option.builder()
 				.longOpt("timeout")
 				.numberOfArgs(1)
@@ -96,17 +82,22 @@ public class SearchTask extends Task<DomNode, String> {
 			_source = sourceTarget;
 
 			String destinationTarget = command.getOptionValue("to");
-			_destination = destinationTarget != null ? destinationTarget : BASE_DESTINATION;
+			_destination = destinationTarget != null ? destinationTarget
+					: String.format(BASE_DESTINATION, LocalDate
+							.now()
+							.toString());
 
 			Integer networkTimeout = command.getParsedOptionValue("timeout");
 			_timeout = networkTimeout != null ? networkTimeout : BASE_TIMEOUT;
 
-			_writer = acquireGenerator(destinationTarget);
+			_writer = acquireGenerator(_destination);
 		} catch (final ParseException exception) {
-			_logger.severe(String.format("%s [%s] :: Failed to parse arguments", getName(), getState()));
-			_timeout = BASE_TIMEOUT;
+			setState(State.FAILED);
+			_logger.severe(String.format("%s [%s] :: Failed to parse arguments %s", getName(), getState()));
+			setMessage("Initialization Failed!");
+			return;
 		}
-		setMessage("Initialized");
+		setMessage("Initialization Complete");
 	}
 
 	private ArrayNode acquireContent(File file, ObjectMapper mapper) throws IOException {
@@ -123,7 +114,10 @@ public class SearchTask extends Task<DomNode, String> {
 				return mapper.createArrayNode();
 			}
 		} catch (final IOException exception) {
-			throw new RuntimeException("Failed to parse existing JSON: " + file, exception);
+			String message = String.format("%s [%s] :: Failed to parse existing JSON content of %s", getName(), getState(),
+					file.getName());
+			_logger.severe(message);
+			throw new RuntimeException(message, exception);
 		}
 	}
 
@@ -163,18 +157,23 @@ public class SearchTask extends Task<DomNode, String> {
 						try {
 							generator.writeString(value.textValue());
 						} catch (final IOException exception) {
-							_logger.severe(String.format("%s [%s] :: Failed to parse existing content", getName(), getState()));
-							throw new RuntimeException(exception);
+							setState(State.FAILED);
+							String message = String.format("%s [%s] :: Failed to write existing JSON content of", getName(),
+									getState(),
+									file.getName());
+							_logger.severe(message);
+							throw new RuntimeException(message, exception);
 						}
 					});
 					generator.writeEndArray();
 					generator.writeEndObject();
 				}
-
 				return generator;
 			} catch (final IOException exception) {
-				_logger.severe(String.format("%s [%s] :: Failed to create JSON writer", getName(), getState()));
-				throw new RuntimeException(exception);
+				setState(State.FAILED);
+				String message = String.format("%s [%s] :: Failed to create JSON writer", getName(), getState());
+				_logger.severe(message);
+				throw new RuntimeException(message, exception);
 			}
 		});
 		final String date = LocalDate
@@ -193,13 +192,14 @@ public class SearchTask extends Task<DomNode, String> {
 				_generator.writeStartArray();
 			}
 		} catch (final IOException exception) {
-			_logger.severe(String.format("%s [%s] :: Failed to create JSON writer", getName(), getState()));
-			exception.printStackTrace();
+			setState(State.FAILED);
+			String message = String.format("%s [%s] :: Failed to create JSON writer", getName(), getState());
+			_logger.severe(message);
 		}
 		return _generator;
 	}
 
-	private void releaseGenerator(final @NonNull String destination) {
+	private void releaseGenerator(final @NonNull String destination) throws IOException {
 		final AtomicInteger _reference = _references.get(destination);
 		if (_reference == null) {
 			return;
@@ -217,8 +217,12 @@ public class SearchTask extends Task<DomNode, String> {
 				_generator.close();
 			}
 		} catch (final IOException exception) {
-			_logger.severe(String.format("%s [%s] :: Failed to close JSON writer", getName(), getState()));
-			exception.printStackTrace();
+			String message = String.format("%s [%s] :: Failed to close JSON writer", getName(), getState());
+			_logger.severe(message);
+			throw exception;
+		}
+		synchronized (_writer) {
+			_writer = null;
 		}
 		_references.remove(destination);
 	}
@@ -257,8 +261,8 @@ public class SearchTask extends Task<DomNode, String> {
 			return pageAnchors;
 		} catch (final IOException exception) {
 			setState(State.FAILED);
-			_logger.severe(String.format("%s [%s] :: Failed to retrieve source content", getName(), getState()));
-			exception.printStackTrace();
+			String message = String.format("%s [%s] :: Failed to retrieve source content", getName(), getState());
+			_logger.severe(message);
 			return List.of();
 		}
 	}
@@ -290,8 +294,9 @@ public class SearchTask extends Task<DomNode, String> {
 				_writer.writeString(operand);
 				return true;
 			} catch (final IOException exception) {
-				_logger.severe(String.format("%s [%s] :: Failed to write destination content", getName(), getState()));
-				exception.printStackTrace();
+				String message = String.format("%s [%s] :: Failed to write destination content of operand %s", getName(),
+						getState(), operand);
+				_logger.severe(message);
 				return false;
 			}
 		}
@@ -300,16 +305,19 @@ public class SearchTask extends Task<DomNode, String> {
 	@Override
 	protected synchronized void restart() {
 		setMessage("Restarting");
-		synchronized (_writer) {
-			try {
+		try {
+			synchronized (_writer) {
 				_writer.writeEndArray();
 				_writer.writeEndObject();
 				_writer.flush();
-			} catch (final IOException exception) {
-				_logger.severe(String.format("%s [%s] :: Failed to safely restart", getName(), getState()));
 			}
+			releaseGenerator(_destination);
+			_writer = acquireGenerator(_destination);
+		} catch (final IOException exception) {
+			setState(State.FAILED);
+			String message = String.format("%s [%s] :: Failed to safely restart", getName(), getState());
+			_logger.severe(message);
 		}
-		releaseGenerator(_destination);
-		_writer = acquireGenerator(_destination);
+
 	}
 }

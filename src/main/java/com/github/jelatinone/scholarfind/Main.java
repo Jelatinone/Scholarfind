@@ -1,5 +1,6 @@
 package com.github.jelatinone.scholarfind;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -27,11 +28,13 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public final class Main {
 	static final Logger _logger = Logger.getLogger(Main.class.getName());
+
 	static final CommandLineParser _parser = new DefaultParser();
 	static final Options _config = new Options();
 
+	static final Map<Task<?, ?>, Future<?>> _tasks = new ConcurrentHashMap<>();
+
 	static ExecutorService _executor;
-	static Map<Task<?, ?>, Future<?>> _tasks = new ConcurrentHashMap<>();
 
 	public static void main(String... arguments) {
 		Option opt_helpMessage = new Option("help", "print a descriptive help message");
@@ -113,7 +116,6 @@ public final class Main {
 			submit(kindBlock);
 		} catch (final ParseException exception) {
 			_logger.severe(String.format("Main :: Could not parse argument(s) : %s", exception.getMessage()));
-			exception.printStackTrace();
 		}
 		try {
 			update();
@@ -145,12 +147,12 @@ public final class Main {
 
 		Task<?, ?> task = kind.generator.apply(kindBlock);
 		Future<?> future = _executor.submit(() -> {
-			task.run();
-			try {
-				task.close();
+			try (task) {
+				task.run();
+			} catch (final IOException exception) {
+				_logger.fine(String.format("Main :: %s failed to close %s", task.getName(), exception.getMessage()));
 			} catch (final Exception exception) {
-				_logger.fine(String.format("Main :: Failed to close %s", task.getName()));
-				exception.printStackTrace();
+				_logger.fine(String.format("Main :: %s failed to operate %s", task.getName(), exception.getMessage()));
 			}
 		});
 		task.withListener(Main::update);
