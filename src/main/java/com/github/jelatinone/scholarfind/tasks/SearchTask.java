@@ -244,6 +244,7 @@ public class SearchTask extends Task<DomNode, String> {
 			Client
 					.getOptions()
 					.setPrintContentOnFailingStatusCode(false);
+			setMessage("Retrieving page content");
 			final HtmlPage pageContent = Client
 					.<HtmlPage>getPage(_source);
 			setMessage("Retrieving page anchor tags");
@@ -263,14 +264,14 @@ public class SearchTask extends Task<DomNode, String> {
 	}
 
 	@Override
-	public void close() throws IOException {
+	public synchronized void close() throws IOException {
 		synchronized (_writer) {
 			_writer.writeEndArray();
 			_writer.writeEndObject();
 			_writer.flush();
 		}
 		releaseGenerator(_destination);
-		setMessage("Finished Execution");
+		setMessage("Resource closed");
 	}
 
 	@Override

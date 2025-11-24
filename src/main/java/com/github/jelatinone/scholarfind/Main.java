@@ -129,7 +129,7 @@ public final class Main {
 	}
 
 	private static void update() {
-		System.out.print("\033[H\033[2J");
+		System.out.print("\033[2J\033[H");
 		System.out.flush();
 		synchronized (_tasks) {
 			for (var task : _tasks.keySet()) {
