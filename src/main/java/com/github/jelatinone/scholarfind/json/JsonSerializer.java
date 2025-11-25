@@ -4,8 +4,10 @@ import java.io.IOException;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 
+import lombok.NonNull;
+
 @FunctionalInterface
 public interface JsonSerializer<Document> {
 
-	void write(JsonGenerator generator, Document document) throws IOException;
+	void write(final @NonNull JsonGenerator generator, final @NonNull Document document) throws IOException;
 }
