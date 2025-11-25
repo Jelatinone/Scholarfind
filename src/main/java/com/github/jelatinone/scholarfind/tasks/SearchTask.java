@@ -1,28 +1,21 @@
 package com.github.jelatinone.scholarfind.tasks;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.github.jelatinone.scholarfind.json.JsonHandler;
 import com.github.jelatinone.scholarfind.meta.State;
 import com.github.jelatinone.scholarfind.meta.Task;
+import com.github.jelatinone.scholarfind.models.SearchDocument;
 
 import lombok.AccessLevel;
 import lombok.NonNull;
 import lombok.experimental.FieldDefaults;
 import lombok.experimental.NonFinal;
 
-import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 import org.apache.commons.cli.CommandLine;
@@ -38,25 +31,25 @@ import org.htmlunit.html.HtmlPage;
 import org.w3c.dom.Node;
 
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-public class SearchTask extends Task<DomNode, String> {
+public final class SearchTask extends Task<DomNode, String> {
 	static Options _config = new Options();
 	static Logger _logger = Logger.getLogger(SearchTask.class.getName());
 	static CommandLineParser _parser = new DefaultParser();
-
-	static Map<String, JsonGenerator> _generators = new ConcurrentHashMap<>();
-	static Map<String, AtomicInteger> _references = new ConcurrentHashMap<>();
 
 	static String BASE_DESTINATION = "output/search-results_%s.json";
 	static Integer BASE_TIMEOUT = 3500;
 
 	@NonFinal
-	JsonGenerator _writer;
+	JsonHandler<SearchDocument> _handler;
+
 	@NonFinal
 	String _source;
 	@NonFinal
 	String _destination;
 	@NonFinal
 	Integer _timeout;
+
+	List<String> _retrieved = new ArrayList<>();
 
 	static {
 		_config.addOptions(Task.BASE_OPTION_CONFIGURATION);
@@ -77,7 +70,6 @@ public class SearchTask extends Task<DomNode, String> {
 
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
-
 			String sourceTarget = command.getOptionValue("from");
 			_source = sourceTarget;
 
@@ -90,141 +82,33 @@ public class SearchTask extends Task<DomNode, String> {
 			Integer networkTimeout = command.getParsedOptionValue("timeout");
 			_timeout = networkTimeout != null ? networkTimeout : BASE_TIMEOUT;
 
-			_writer = acquireGenerator(_destination);
+			_handler = JsonHandler.acquireWriter(_destination, (generator, document) -> {
+				generator.writeStartObject();
+				generator.writeStringField("source", document.source());
+				generator.writeStringField("date", document.date());
+				generator.writeStringField("time", document.time());
+
+				generator.writeFieldName("retrieved");
+				generator.writeStartArray();
+				for (String value : document.retrieved()) {
+					generator.writeString(value);
+				}
+				generator.writeEndArray();
+
+				generator.writeEndObject();
+			});
 		} catch (final ParseException exception) {
 			setState(State.FAILED);
 			_logger.severe(String.format("%s [%s] :: Failed to parse arguments %s", getName(), getState()));
 			setMessage("Initialization Failed!");
 			return;
-		}
-		setMessage("Initialization Complete");
-	}
-
-	private ArrayNode acquireContent(File file, ObjectMapper mapper) throws IOException {
-		if (!file.exists() || file.length() == 0) {
-			return mapper.createArrayNode();
-		}
-		try {
-			JsonNode root = mapper.readTree(file);
-			JsonNode results = root.get("results");
-
-			if (results != null && results.isArray()) {
-				return (ArrayNode) results;
-			} else {
-				return mapper.createArrayNode();
-			}
-		} catch (final IOException exception) {
-			String message = String.format("%s [%s] :: Failed to parse existing JSON content of %s", getName(), getState(),
-					file.getName());
-			_logger.severe(message);
-			throw new RuntimeException(message, exception);
-		}
-	}
-
-	private JsonGenerator acquireGenerator(final @NonNull String destination) {
-		final AtomicInteger _reference = _references.computeIfAbsent(destination, (target) -> new AtomicInteger());
-		_reference.incrementAndGet();
-		final JsonGenerator _generator = _generators.computeIfAbsent(destination, (target) -> {
-			try {
-				final JsonFactory factory = new JsonFactory();
-
-				final File file = new File(target);
-
-				final ObjectMapper mapper = new ObjectMapper();
-				final ArrayNode content = acquireContent(file, mapper);
-
-				final FileWriter writer = new FileWriter(file);
-				final JsonGenerator generator = factory.createJsonGenerator(writer);
-
-				generator.writeStartObject();
-				generator.writeFieldName("results");
-				generator.writeStartArray();
-				for (final JsonNode entry : content) {
-					generator.writeStartObject();
-
-					final String sourceField = entry.get("source").textValue();
-					generator.writeStringField("source", sourceField);
-
-					final String dateField = entry.get("date").textValue();
-					generator.writeStringField("date", dateField);
-
-					final String timeField = entry.get("time").textValue();
-					generator.writeStringField("time", timeField);
-
-					generator.writeFieldName("retrieved");
-					generator.writeStartArray();
-					entry.get("retrieved").iterator().forEachRemaining((value) -> {
-						try {
-							generator.writeString(value.textValue());
-						} catch (final IOException exception) {
-							setState(State.FAILED);
-							String message = String.format("%s [%s] :: Failed to write existing JSON content of", getName(),
-									getState(),
-									file.getName());
-							_logger.severe(message);
-							throw new RuntimeException(message, exception);
-						}
-					});
-					generator.writeEndArray();
-					generator.writeEndObject();
-				}
-				return generator;
-			} catch (final IOException exception) {
-				setState(State.FAILED);
-				String message = String.format("%s [%s] :: Failed to create JSON writer", getName(), getState());
-				_logger.severe(message);
-				throw new RuntimeException(message, exception);
-			}
-		});
-		final String date = LocalDate
-				.now()
-				.toString();
-		final String time = LocalTime
-				.now()
-				.toString();
-		try {
-			synchronized (_generator) {
-				_generator.writeStartObject();
-				_generator.writeStringField("source", _source);
-				_generator.writeStringField("date", date);
-				_generator.writeStringField("time", time);
-				_generator.writeFieldName("retrieved");
-				_generator.writeStartArray();
-			}
 		} catch (final IOException exception) {
 			setState(State.FAILED);
-			String message = String.format("%s [%s] :: Failed to create JSON writer", getName(), getState());
-			_logger.severe(message);
-		}
-		return _generator;
-	}
-
-	private void releaseGenerator(final @NonNull String destination) throws IOException {
-		final AtomicInteger _reference = _references.get(destination);
-		if (_reference == null) {
+			_logger.severe(String.format("%s [%s] :: Failed to create JSON writer %s", getName(), getState()));
+			setMessage("Initialization Failed!");
 			return;
 		}
-		final Integer _count = _reference.decrementAndGet();
-		if (_count > 0) {
-			return;
-		}
-		try {
-			JsonGenerator _generator = _generators.remove(destination);
-			synchronized (_generator) {
-				_generator.writeEndArray();
-				_generator.writeEndObject();
-				_generator.flush();
-				_generator.close();
-			}
-		} catch (final IOException exception) {
-			String message = String.format("%s [%s] :: Failed to close JSON writer", getName(), getState());
-			_logger.severe(message);
-			throw exception;
-		}
-		synchronized (_writer) {
-			_writer = null;
-		}
-		_references.remove(destination);
+		setMessage("Initialization Complete");
 	}
 
 	protected synchronized List<DomNode> collect() {
@@ -269,17 +153,36 @@ public class SearchTask extends Task<DomNode, String> {
 
 	@Override
 	public synchronized void close() throws IOException {
-		synchronized (_writer) {
-			_writer.writeEndArray();
-			_writer.writeEndObject();
-			_writer.flush();
+		final String date = LocalDate
+				.now()
+				.toString();
+		final String time = LocalTime
+				.now()
+				.toString();
+		try {
+			final SearchDocument document = new SearchDocument(
+					_source,
+					date,
+					time,
+					List.copyOf(_retrieved));
+
+			_handler.writeDocument(document);
+		} catch (final IOException exception) {
+			setState(State.FAILED);
+			String message = String.format("%s [%s] :: Failed to write search document",
+					getName(), getState());
+			_logger.severe(message);
+			throw exception;
+		} finally {
+			if (_handler != null) {
+				_handler.close();
+			}
+			setMessage("Resource closed");
 		}
-		releaseGenerator(_destination);
-		setMessage("Resource closed");
 	}
 
 	@Override
-	protected String operate(final @NonNull DomNode operand) {
+	protected synchronized String operate(final @NonNull DomNode operand) {
 		Node hrefNode = operand.getAttributes().getNamedItem("href");
 		String hrefAttribute = hrefNode != null ? hrefNode.getTextContent() : null;
 		setMessage(String.format("Reading operand: %s", hrefAttribute));
@@ -287,37 +190,14 @@ public class SearchTask extends Task<DomNode, String> {
 	}
 
 	@Override
-	protected boolean result(@NonNull String operand) {
-		synchronized (_writer) {
-			try {
-				setMessage(String.format("Writing result: %s", operand));
-				_writer.writeString(operand);
-				return true;
-			} catch (final IOException exception) {
-				String message = String.format("%s [%s] :: Failed to write destination content of operand %s", getName(),
-						getState(), operand);
-				_logger.severe(message);
-				return false;
-			}
-		}
+	protected synchronized boolean result(@NonNull String operand) {
+		setMessage(String.format("Queued result: %s", operand));
+		return _retrieved.add(operand);
 	}
 
 	@Override
 	protected synchronized void restart() {
 		setMessage("Restarting");
-		try {
-			synchronized (_writer) {
-				_writer.writeEndArray();
-				_writer.writeEndObject();
-				_writer.flush();
-			}
-			releaseGenerator(_destination);
-			_writer = acquireGenerator(_destination);
-		} catch (final IOException exception) {
-			setState(State.FAILED);
-			String message = String.format("%s [%s] :: Failed to safely restart", getName(), getState());
-			_logger.severe(message);
-		}
-
+		_retrieved.clear();
 	}
 }

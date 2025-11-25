@@ -5,7 +5,7 @@ import java.time.LocalDate;
 import java.util.Map;
 import java.util.Optional;
 
-public record Document(
+public record AnnotateDocument(
 		String Name,
 		URL Domain,
 		Number Award,
