@@ -25,19 +25,19 @@ import com.github.jelatinone.scholarfind.tasks.SearchTask;
 import lombok.AccessLevel;
 import lombok.experimental.FieldDefaults;
 
-@FieldDefaults(level = AccessLevel.PRIVATE)
+@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public final class Main {
-	static final Logger _logger = Logger.getLogger(Main.class.getName());
+	static Logger _logger = Logger.getLogger(Main.class.getName());
 
-	static final CommandLineParser _parser = new DefaultParser();
-	static final Options _config = new Options();
+	static CommandLineParser _parser = new DefaultParser();
+	static Options _config = new Options();
 
-	static final Map<Task<?, ?>, Future<?>> _tasks = new ConcurrentHashMap<>();
+	static Map<Task<?, ?>, Future<?>> _tasks = new ConcurrentHashMap<>();
 
 	static ExecutorService _executor;
 
-	public static void main(String... arguments) {
-		Option opt_helpMessage = new Option("help", "print a descriptive help message");
+	static {
+		Option opt_helpMessage = new Option("help", "output a descriptive help message");
 		_config.addOption(opt_helpMessage);
 		Option opt_maxThreads = Option.builder()
 				.longOpt("maxThreads")
@@ -50,7 +50,7 @@ public final class Main {
 		_config.addOption(opt_maxThreads);
 		Option opt_executorType = Option.builder()
 				.longOpt("executorType")
-				.option("using")
+				.option("use")
 				.hasArg()
 				.desc("Type of executor to run a given operation with")
 				.converter((value) -> ExecutorType.valueOf(value.toUpperCase()))
@@ -58,18 +58,27 @@ public final class Main {
 		_config.addOption(opt_executorType);
 		Option opt_task = Option.builder()
 				.longOpt("task")
-				.option("t")
 				.valueSeparator(',')
 				.hasArgs()
 				.desc("Defines a given task with arguments.")
 				.get();
 		_config.addOption(opt_task);
+	}
+
+	public static void main(final String... arguments) {
 		try {
-			_logger.fine(String.format("Main :: Supplied with command : %s", String.join(" ", arguments)));
-			CommandLine command = _parser.parse(_config, arguments);
-			_logger.fine(String.format("Main :: Parsed as command : %s", String.join(" ", command.getArgs())));
-			Integer maxThreads = command.<Integer>getParsedOptionValue(opt_maxThreads);
-			ExecutorType executorType = command.<ExecutorType>getParsedOptionValue(opt_executorType);
+			CommandLine parsedCommand = _parser.parse(_config, arguments);
+
+			for (String argument : arguments) {
+				_logger.fine(String.format("Main :: supplied with argument :", argument));
+			}
+			for (String parsedArgument : parsedCommand.getArgList()) {
+				_logger.fine(String.format("Main :: parsed with argument :", parsedArgument));
+			}
+
+			Integer maxThreads = parsedCommand.getParsedOptionValue("maxThreads");
+			ExecutorType executorType = parsedCommand.getParsedOptionValue("executorType");
+
 			switch (executorType) {
 				case FIXED:
 					_executor = Executors.newFixedThreadPool(maxThreads);
@@ -84,7 +93,6 @@ public final class Main {
 					break;
 
 				case VIRTUAL:
-					// Experimental Language Feature
 					// _executor = Executors.newVirtualThreadPerTaskExecutor();
 					// break;
 
@@ -93,30 +101,37 @@ public final class Main {
 					break;
 			}
 
-			String[] kindArguments = command.getOptionValues(opt_task);
-			if (kindArguments == null) {
+			String[] taskArguments = parsedCommand.getParsedOptionValues("task");
+
+			if (taskArguments == null) {
 				_logger.severe("Main :: Could not parse argument(s) : no runnable tasks found!");
 				return;
 			}
 
-			List<String> kindBlock = new ArrayList<>();
-			for (final String kindArgument : kindArguments) {
-				TaskKind maybeKind = null;
+			List<String> taskArgument = new ArrayList<>();
+
+			for (String argument : taskArguments) {
+				boolean argumentIsTask;
 				try {
-					maybeKind = TaskKind.valueOf(kindArgument.toUpperCase());
+					TaskType.valueOf(argument.toUpperCase());
+					argumentIsTask = true;
 				} catch (final IllegalArgumentException ignored) {
+					argumentIsTask = false;
 				}
 
-				if (maybeKind != null && !kindBlock.isEmpty()) {
-					submit(kindBlock);
-					kindBlock.clear();
+				if (argumentIsTask && !taskArgument.isEmpty()) {
+					withTask(taskArgument);
+					taskArgument.clear();
 				}
-				kindBlock.add(kindArgument);
+				taskArgument.add(argument);
 			}
-			submit(kindBlock);
+			withTask(taskArgument);
 		} catch (final ParseException exception) {
-			_logger.severe(String.format("Main :: Could not parse argument(s) : %s", exception.getMessage()));
+			_logger.severe(String.format("Main :: Could not parse argument(s) : %s",
+					exception.getMessage()));
+			return;
 		}
+
 		try {
 			update();
 			_logger.fine(String.format("Main :: Executing [%s] tasks", _tasks.size()));
@@ -133,19 +148,14 @@ public final class Main {
 	private static void update() {
 		System.out.print("\033[2J\033[H");
 		System.out.flush();
-		synchronized (_tasks) {
-			for (var task : _tasks.keySet()) {
-				System.out.println(task.getReport());
-			}
+		for (Task<?, ?> task : _tasks.keySet()) {
+			System.out.println(task.getReport());
 		}
 	}
 
-	private static void submit(List<String> kindArguments) {
-		String[] kindBlock = kindArguments.toArray(String[]::new);
-
-		TaskKind kind = TaskKind.valueOf(kindArguments.get(0).toUpperCase());
-
-		Task<?, ?> task = kind.generator.apply(kindBlock);
+	private static void withTask(final List<String> taskArgument) {
+		TaskType type = TaskType.valueOf(taskArgument.get(0).toUpperCase());
+		Task<?, ?> task = type.create(taskArgument.toArray(String[]::new));
 		Future<?> future = _executor.submit(() -> {
 			try (task) {
 				task.run();
@@ -156,25 +166,30 @@ public final class Main {
 			}
 		});
 		task.withListener(Main::update);
-		synchronized (_tasks) {
-			_tasks.put(task, future);
-		}
-	}
-
-	static enum TaskKind {
-		SEARCH(SearchTask::new);
-
-		final Function<String[], Task<?, ?>> generator;
-
-		private TaskKind(final Function<String[], Task<?, ?>> generator) {
-			this.generator = generator;
-		}
+		_tasks.put(task, future);
 	}
 
 	static enum ExecutorType {
 		FIXED,
+
 		WORK_STEALING,
+
 		SCHEDULED,
+
 		VIRTUAL;
+	}
+
+	static enum TaskType {
+		SEARCH(SearchTask::new);
+
+		private final Function<String[], Task<?, ?>> factory;
+
+		private TaskType(final Function<String[], Task<?, ?>> generator) {
+			this.factory = generator;
+		}
+
+		public Task<?, ?> create(final String[] taskArgument) {
+			return factory.apply(taskArgument);
+		}
 	}
 }

@@ -39,12 +39,12 @@ import org.w3c.dom.Node;
 
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class SearchTask extends Task<DomNode, String> {
-	static final Options _config = new Options();
-	static final Logger _logger = Logger.getLogger(SearchTask.class.getName());
-	static final CommandLineParser _parser = new DefaultParser();
+	static Options _config = new Options();
+	static Logger _logger = Logger.getLogger(SearchTask.class.getName());
+	static CommandLineParser _parser = new DefaultParser();
 
-	static final Map<String, JsonGenerator> _generators = new ConcurrentHashMap<>();
-	static final Map<String, AtomicInteger> _references = new ConcurrentHashMap<>();
+	static Map<String, JsonGenerator> _generators = new ConcurrentHashMap<>();
+	static Map<String, AtomicInteger> _references = new ConcurrentHashMap<>();
 
 	static String BASE_DESTINATION = "output/search-results_%s.json";
 	static Integer BASE_TIMEOUT = 3500;
@@ -59,7 +59,7 @@ public class SearchTask extends Task<DomNode, String> {
 	Integer _timeout;
 
 	static {
-		_config.addOptions(Task.BASE_CONFIGURATION);
+		_config.addOptions(Task.BASE_OPTION_CONFIGURATION);
 		Option opt_networkTimeout = Option.builder()
 				.longOpt("timeout")
 				.numberOfArgs(1)

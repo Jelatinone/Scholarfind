@@ -38,12 +38,12 @@ import lombok.experimental.NonFinal;
  * @author Cody Washington
  */
 @FieldDefaults(level = AccessLevel.PROTECTED, makeFinal = true)
-public abstract class Task<Consumes, Produces extends Serializable>
+public abstract class Task<Consumes, Produces>
 		implements Runnable, AutoCloseable {
-	static final Logger _logger = Logger.getLogger(Task.class.getName());
+	static Logger _logger = Logger.getLogger(Task.class.getName());
 
-	public static final Integer MAX_RETRIES = 3;
-	public static final Options BASE_CONFIGURATION = new Options();
+	public static Integer MAXIMUM_OPERAND_RETRIES = 3;
+	public static Options BASE_OPTION_CONFIGURATION = new Options();
 
 	String _name;
 
@@ -66,20 +66,20 @@ public abstract class Task<Consumes, Produces extends Serializable>
 
 	static {
 		Option opt_helpMessage = new Option("help", "print a descriptive help message");
-		BASE_CONFIGURATION.addOption(opt_helpMessage);
+		BASE_OPTION_CONFIGURATION.addOption(opt_helpMessage);
 		Option opt_sourceTarget = Option.builder()
 				.longOpt("from")
 				.required()
 				.hasArg()
 				.desc("location to pull consumable source data from")
 				.get();
-		BASE_CONFIGURATION.addOption(opt_sourceTarget);
+		BASE_OPTION_CONFIGURATION.addOption(opt_sourceTarget);
 		Option opt_destinationTarget = Option.builder()
 				.longOpt("to")
 				.hasArg()
 				.desc("location to push resulting produced data to")
 				.get();
-		BASE_CONFIGURATION.addOption(opt_destinationTarget);
+		BASE_OPTION_CONFIGURATION.addOption(opt_destinationTarget);
 	}
 
 	/**
@@ -226,7 +226,7 @@ public abstract class Task<Consumes, Produces extends Serializable>
 
 					case RETRYING -> {
 						final int currentAttempt = _attempt.getAndIncrement();
-						if (currentAttempt >= MAX_RETRIES) {
+						if (currentAttempt >= MAXIMUM_OPERAND_RETRIES) {
 							iterableData.previous();
 							setState(State.OPERATING);
 						} else {
