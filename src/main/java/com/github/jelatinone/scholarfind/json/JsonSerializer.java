@@ -5,7 +5,7 @@ import java.io.IOException;
 import com.fasterxml.jackson.core.JsonGenerator;
 
 @FunctionalInterface
-public interface JsonSerializer<T> {
+public interface JsonSerializer<Document> {
 
-	void write(JsonGenerator generator, T document) throws IOException;
+	void write(JsonGenerator generator, Document document) throws IOException;
 }

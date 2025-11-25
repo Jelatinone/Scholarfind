@@ -20,18 +20,18 @@ import lombok.NonNull;
 import lombok.experimental.FieldDefaults;
 
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-public class JsonHandler<T> implements Closeable {
+public class JsonHandler<Document> implements Closeable {
 
 	static Logger _logger = Logger.getLogger(JsonHandler.class.getName());
 	static Map<String, JsonHandler<?>> _handlers = new ConcurrentHashMap<>();
 
 	JsonGenerator _generator;
-	JsonSerializer<T> _serializer;
+	JsonSerializer<Document> _serializer;
 
 	String _destination;
 	AtomicInteger _references = new AtomicInteger();
 
-	private JsonHandler(final @NonNull String destination, final @NonNull JsonSerializer<T> serializer)
+	private JsonHandler(final @NonNull String destination, final @NonNull JsonSerializer<Document> serializer)
 			throws IOException {
 		final JsonFactory factory = new JsonFactory();
 		final File file = new File(destination);
@@ -60,7 +60,7 @@ public class JsonHandler<T> implements Closeable {
 		}
 	}
 
-	public synchronized void writeDocument(final @NonNull T document) throws IOException {
+	public synchronized void writeDocument(final @NonNull Document document) throws IOException {
 		try {
 			synchronized (_generator) {
 				_serializer.write(_generator, document);
