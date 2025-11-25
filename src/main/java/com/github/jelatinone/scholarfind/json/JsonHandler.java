@@ -19,52 +19,79 @@ import lombok.AccessLevel;
 import lombok.NonNull;
 import lombok.experimental.FieldDefaults;
 
+/**
+ * <h1>JsonHandler</h1>
+ * 
+ * <p>
+ * Handles JSON retrieval and writing for a given Document type which can be
+ * serialized using a {@link #serializer}.
+ * </p>
+ * 
+ * @author Cody Washington
+ */
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class JsonHandler<Document> implements Closeable {
 
 	static Logger _logger = Logger.getLogger(JsonHandler.class.getName());
 	static Map<String, JsonHandler<?>> _handlers = new ConcurrentHashMap<>();
 
-	JsonGenerator _generator;
-	JsonSerializer<Document> _serializer;
+	JsonGenerator generator;
+	JsonSerializer<Document> serializer;
 
-	String _destination;
-	AtomicInteger _references = new AtomicInteger();
+	String destination;
+	AtomicInteger references = new AtomicInteger();
 
+	/**
+	 * JSON Handler Constructor.
+	 * 
+	 * @param destination Target location to output {@link #writeDocument(Object)
+	 *                    write operations} to
+	 * @param serializer  {@link #serializer Serializer} to use to write to Target
+	 *                    destination file
+	 * @throws IOException When a critical IO failure occurs during construction
+	 */
 	private JsonHandler(final @NonNull String destination, final @NonNull JsonSerializer<Document> serializer)
 			throws IOException {
+		this.serializer = serializer;
+		this.destination = destination;
+
 		final JsonFactory factory = new JsonFactory();
 		final File file = new File(destination);
 
 		final ObjectMapper mapper = new ObjectMapper(factory);
-
 		final ArrayNode document = acquireContent(file, mapper);
 
 		final FileWriter writer = new FileWriter(file);
+		generator = factory.createJsonGenerator(writer);
 
-		_generator = factory.createJsonGenerator(writer);
-		_serializer = serializer;
+		synchronized (generator) {
+			generator.writeStartObject();
+			generator.writeFieldName("results");
 
-		_destination = file.getPath();
-		synchronized (_generator) {
-			_generator.writeStartObject();
-			_generator.writeFieldName("results");
-
-			_generator.writeStartArray();
+			generator.writeStartArray();
 
 			for (final JsonNode entry : document) {
-				_generator.writeTree(entry);
+				generator.writeTree(entry);
 			}
 
-			_generator.flush();
+			generator.flush();
 		}
 	}
 
+	/**
+	 * 
+	 * Synchronously writes a Document object to a JSON file using the internal
+	 * JsonGenerator and provided serializer, then flushes the content safely.
+	 * 
+	 * @param document Content to write to internal JSON file
+	 * @throws IOException When a critical IO failure occurs while trying to write
+	 *                     with the generator
+	 */
 	public synchronized void writeDocument(final @NonNull Document document) throws IOException {
 		try {
-			synchronized (_generator) {
-				_serializer.write(_generator, document);
-				_generator.flush();
+			synchronized (generator) {
+				serializer.write(generator, document);
+				generator.flush();
 			}
 		} catch (final IOException exception) {
 			String message = "Failed to write JSON document";
@@ -75,31 +102,50 @@ public class JsonHandler<Document> implements Closeable {
 
 	@Override
 	public synchronized void close() throws IOException {
-		final int count = _references.decrementAndGet();
+		final int count = references.decrementAndGet();
 		if (count > 0) {
 			return;
 		}
 		try {
-			synchronized (_generator) {
-				_generator.writeEndArray();
-				_generator.writeEndObject();
-				_generator.flush();
-				_generator.close();
+			synchronized (generator) {
+				generator.writeEndArray();
+				generator.writeEndObject();
+				generator.flush();
+				generator.close();
 			}
 		} catch (final IOException exception) {
 			String message = "Failed to close JSON writer safely";
 			_logger.severe(message);
 			throw exception;
 		} finally {
-			_handlers.remove(_destination);
+			_handlers.remove(destination);
 		}
 	}
 
+	/**
+	 * <p>
+	 * Acquires a writer for a given file, which may or may not be shared by several
+	 * threads.
+	 * </p>
+	 * 
+	 * <p>
+	 * If a writer already exists, a new instance is not created.
+	 * </p>
+	 * 
+	 * @param <Document>  Document type expect to write and read with
+	 * @param destination Target location to output {@link #writeDocument(Object)
+	 *                    write operations} to
+	 * @param serializer  {@link #serializer Serializer} to use to write to Target
+	 *                    destination file
+	 * @return An instance of {@link #JsonHandler(String, JsonSerializer)
+	 *         JsonHandler} which may or may not be in use by another thread
+	 * @throws IOException When a critical IO failure occurs during construction
+	 */
 	@SuppressWarnings("unchecked")
-	public static <T> JsonHandler<T> acquireWriter(
+	public static <Document> JsonHandler<Document> acquireWriter(
 			final @NonNull String destination,
-			final @NonNull JsonSerializer<T> serializer) throws IOException {
-		final JsonHandler<T> writer = (JsonHandler<T>) _handlers.computeIfAbsent(destination, (target) -> {
+			final @NonNull JsonSerializer<Document> serializer) throws IOException {
+		final JsonHandler<Document> writer = (JsonHandler<Document>) _handlers.computeIfAbsent(destination, (target) -> {
 			try {
 				return new JsonHandler<>(destination, serializer);
 			} catch (final IOException exception) {
@@ -108,10 +154,20 @@ public class JsonHandler<Document> implements Closeable {
 				throw new RuntimeException(message, exception);
 			}
 		});
-		writer._references.incrementAndGet();
+		writer.references.incrementAndGet();
 		return writer;
 	}
 
+	/**
+	 * Acquires an {@link ArrayNode} from a given file using the supplied Object
+	 * mapper
+	 * 
+	 * @param file   JSON file to pull data from
+	 * @param mapper JSON mapper to pull data with
+	 * @return ArrayNode of content, which may be empty if no results could be
+	 *         found, but never null
+	 * @throws IOException When a critical IO failure occurs during read operation
+	 */
 	public static ArrayNode acquireContent(
 			final @NonNull File file,
 			final @NonNull ObjectMapper mapper) throws IOException {

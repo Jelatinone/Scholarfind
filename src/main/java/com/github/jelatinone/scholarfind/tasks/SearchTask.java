@@ -30,26 +30,41 @@ import org.htmlunit.html.DomNode;
 import org.htmlunit.html.HtmlPage;
 import org.w3c.dom.Node;
 
+/**
+ * 
+ * <h1>SearchTask</h1>
+ * 
+ * <p>
+ * Performs a simple search operation on a given source location.
+ * </p>
+ * 
+ * <p>
+ * This search operation collects all available anchor tags from the parent page
+ * and performs a transformation on them before outputting the resulting JSON.
+ * </p>
+ * 
+ * 
+ * @author Cody Washington
+ */
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public final class SearchTask extends Task<DomNode, String> {
+	static String DEFAULT_DESTINATION = "output/search-results_%s.json";
+	static Integer DEFAULT_TIMEOUT = 3500;
+
 	static Options _config = new Options();
 	static Logger _logger = Logger.getLogger(SearchTask.class.getName());
 	static CommandLineParser _parser = new DefaultParser();
 
-	static String BASE_DESTINATION = "output/search-results_%s.json";
-	static Integer BASE_TIMEOUT = 3500;
+	List<String> retrieved = new ArrayList<>();
 
 	@NonFinal
-	JsonHandler<SearchDocument> _handler;
-
+	JsonHandler<SearchDocument> handler;
 	@NonFinal
-	String _source;
+	String source;
 	@NonFinal
-	String _destination;
+	String destination;
 	@NonFinal
-	Integer _timeout;
-
-	List<String> _retrieved = new ArrayList<>();
+	Integer timeout;
 
 	static {
 		_config.addOptions(Task.BASE_OPTION_CONFIGURATION);
@@ -64,6 +79,11 @@ public final class SearchTask extends Task<DomNode, String> {
 		_config.addOption(opt_networkTimeout);
 	}
 
+	/**
+	 * Search Task Constructor.
+	 * 
+	 * @param arguments Command line arguments to parse and configure this task with
+	 */
 	public SearchTask(final @NonNull String... arguments) {
 		super("SearchTask");
 		setMessage("Initializing");
@@ -71,18 +91,18 @@ public final class SearchTask extends Task<DomNode, String> {
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
 			String sourceTarget = command.getOptionValue("from");
-			_source = sourceTarget;
+			source = sourceTarget;
 
 			String destinationTarget = command.getOptionValue("to");
-			_destination = destinationTarget != null ? destinationTarget
-					: String.format(BASE_DESTINATION, LocalDate
+			destination = destinationTarget != null ? destinationTarget
+					: String.format(DEFAULT_DESTINATION, LocalDate
 							.now()
 							.toString());
 
 			Integer networkTimeout = command.getParsedOptionValue("timeout");
-			_timeout = networkTimeout != null ? networkTimeout : BASE_TIMEOUT;
+			timeout = networkTimeout != null ? networkTimeout : DEFAULT_TIMEOUT;
 
-			_handler = JsonHandler.acquireWriter(_destination, (generator, document) -> {
+			handler = JsonHandler.acquireWriter(destination, (generator, document) -> {
 				generator.writeStartObject();
 				generator.writeStringField("source", document.source());
 				generator.writeStringField("date", document.date());
@@ -119,7 +139,7 @@ public final class SearchTask extends Task<DomNode, String> {
 					.setDownloadImages(false);
 			Client
 					.getOptions()
-					.setTimeout(_timeout);
+					.setTimeout(timeout);
 			Client
 					.getOptions()
 					.setCssEnabled(false);
@@ -134,7 +154,7 @@ public final class SearchTask extends Task<DomNode, String> {
 					.setPrintContentOnFailingStatusCode(false);
 			setMessage("Retrieving page content");
 			final HtmlPage pageContent = Client
-					.<HtmlPage>getPage(_source);
+					.<HtmlPage>getPage(source);
 			setMessage("Retrieving page anchor tags");
 			final List<DomNode> pageAnchors = pageContent.querySelectorAll(("a"))
 					.stream()
@@ -161,12 +181,12 @@ public final class SearchTask extends Task<DomNode, String> {
 				.toString();
 		try {
 			final SearchDocument document = new SearchDocument(
-					_source,
+					source,
 					date,
 					time,
-					List.copyOf(_retrieved));
+					List.copyOf(retrieved));
 
-			_handler.writeDocument(document);
+			handler.writeDocument(document);
 		} catch (final IOException exception) {
 			setState(State.FAILED);
 			String message = String.format("%s [%s] :: Failed to write search document",
@@ -174,8 +194,8 @@ public final class SearchTask extends Task<DomNode, String> {
 			_logger.severe(message);
 			throw exception;
 		} finally {
-			if (_handler != null) {
-				_handler.close();
+			if (handler != null) {
+				handler.close();
 			}
 			setMessage("Resource closed");
 		}
@@ -192,12 +212,12 @@ public final class SearchTask extends Task<DomNode, String> {
 	@Override
 	protected synchronized boolean result(@NonNull String operand) {
 		setMessage(String.format("Queued result: %s", operand));
-		return _retrieved.add(operand);
+		return retrieved.add(operand);
 	}
 
 	@Override
 	protected synchronized void restart() {
 		setMessage("Restarting");
-		_retrieved.clear();
+		retrieved.clear();
 	}
 }

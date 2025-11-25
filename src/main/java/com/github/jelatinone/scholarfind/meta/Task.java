@@ -40,10 +40,10 @@ import lombok.experimental.NonFinal;
 @FieldDefaults(level = AccessLevel.PROTECTED, makeFinal = true)
 public abstract class Task<Consumes, Produces>
 		implements Runnable, AutoCloseable {
-	static Logger _logger = Logger.getLogger(Task.class.getName());
-
 	public static Integer MAXIMUM_OPERAND_RETRIES = 3;
 	public static Options BASE_OPTION_CONFIGURATION = new Options();
+
+	static Logger _logger = Logger.getLogger(Task.class.getName());
 
 	String _name;
 
@@ -274,6 +274,9 @@ public abstract class Task<Consumes, Produces>
 		if (currentState == State.FAILED || currentState == State.COMPLETED) {
 			throw new IllegalStateException(
 					String.format("%s [%s] :: Illegal State Modification", getName(), state.name()));
+		}
+		if (state == State.COMPLETED || state == State.FAILED) {
+			_completable.complete(null);
 		}
 		this._state.set(state);
 		_logger.fine(String.format("%s [%s] :: State Update", getName(), state.name()));

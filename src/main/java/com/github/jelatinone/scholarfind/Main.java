@@ -33,7 +33,6 @@ public final class Main {
 	static Options _config = new Options();
 
 	static Map<Task<?, ?>, Future<?>> _tasks = new ConcurrentHashMap<>();
-
 	static ExecutorService _executor;
 
 	static {
@@ -58,7 +57,6 @@ public final class Main {
 		_config.addOption(opt_executorType);
 		Option opt_task = Option.builder()
 				.longOpt("task")
-				.valueSeparator(',')
 				.hasArgs()
 				.desc("Defines a given task with arguments.")
 				.get();
@@ -145,6 +143,9 @@ public final class Main {
 		}
 	}
 
+	/**
+	 * Updates the live preview of Task behavior.
+	 */
 	private static void update() {
 		System.out.print("\033[2J\033[H");
 		System.out.flush();
@@ -153,6 +154,16 @@ public final class Main {
 		}
 	}
 
+	/**
+	 * 
+	 * Adds a task to the Task graph, and immediately submits it for execution. Also
+	 * adds a listener to this task to update the live {@link #update() update}.
+	 * 
+	 * @implNote Tasks submitted are not guaranteed to be run at the same time or
+	 *           interval.
+	 * 
+	 * @param taskArgument List of arguments to pass to the task for construction
+	 */
 	private static void withTask(final List<String> taskArgument) {
 		TaskType type = TaskType.valueOf(taskArgument.get(0).toUpperCase());
 		Task<?, ?> task = type.create(taskArgument.toArray(String[]::new));
