@@ -94,7 +94,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	}
 
 	public AnnotateTask(final @NonNull String... arguments) {
-		super("Annotate");
+		super("annotate");
 		setMessage("Initializing");
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
