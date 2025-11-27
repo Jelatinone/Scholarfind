@@ -211,27 +211,36 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 					.<HtmlPage>getPage(operand);
 			setMessage("Annotating Document");
 			AnnotateDocument document = agent.annotate(pageContent);
+			if (document == null) {
+				setState(State.FAILED);
+				String message = String.format("%s [%s] :: Failed to annotate source content", getName(), getState());
+				setMessage("Annotating Failed");
+				_logger.severe(message);
+				return null;
+			}
 			return document;
 		} catch (final IOException exception) {
 			setState(State.FAILED);
 			String message = String.format("%s [%s] :: Failed to retrieve source content", getName(), getState());
 			_logger.severe(message);
-			return new AnnotateDocument();
+			return null;
 		}
 
 	}
 
 	@Override
-	protected synchronized boolean result(@NonNull AnnotateDocument operand) {
-		try {
-			handler.writeDocument(operand);
-			return true;
-		} catch (final IOException exception) {
-			String message = String.format("%s [%s] :: Failed to write annotate document",
-					getName(), getState());
-			_logger.severe(message);
-			return false;
+	protected synchronized boolean result(AnnotateDocument operand) {
+		if (operand != null) {
+			try {
+				handler.writeDocument(operand);
+				return true;
+			} catch (final IOException ignored) {
+			}
 		}
+		String message = String.format("%s [%s] :: Failed to write annotate document",
+				getName(), getState());
+		_logger.severe(message);
+		return false;
 	}
 
 	@Override
@@ -250,8 +259,8 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 					.responseFormat(AnnotateDocument.class)
 					.build();
 			var completion = client.chat().completions().create(params);
-			var choice = completion.choices().getFirst();
-			AnnotateDocument document = choice.message().content().orElse(new AnnotateDocument());
+			var choice = completion.choices().get(0);
+			AnnotateDocument document = choice.message().content().orElse(null);
 			return document;
 		});
 
