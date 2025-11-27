@@ -11,6 +11,8 @@ import lombok.experimental.FieldDefaults;
 import lombok.experimental.NonFinal;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
@@ -47,15 +49,12 @@ import org.w3c.dom.Node;
  * @author Cody Washington
  */
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-public final class SearchTask extends Task<DomNode, String> {
-	static String DEFAULT_DESTINATION = "output/search-results_%s.json";
-	static Integer DEFAULT_TIMEOUT = 3500;
-
+public final class SearchTask extends Task<DomNode, URL> {
 	static Options _config = new Options();
 	static Logger _logger = Logger.getLogger(SearchTask.class.getName());
 	static CommandLineParser _parser = new DefaultParser();
 
-	List<String> retrieved = new ArrayList<>();
+	List<URL> retrieved = new ArrayList<>();
 
 	@NonFinal
 	JsonHandler<SearchDocument> handler;
@@ -65,9 +64,11 @@ public final class SearchTask extends Task<DomNode, String> {
 	String destination;
 	@NonFinal
 	Integer timeout;
+	@NonFinal
+	HtmlPage pageContent;
 
 	static {
-		_config.addOptions(Task.BASE_OPTION_CONFIGURATION);
+		_config.addOptions(DEFAULT_OPTION_CONFIGURATION);
 		Option opt_networkTimeout = Option.builder()
 				.longOpt("timeout")
 				.numberOfArgs(1)
@@ -85,9 +86,8 @@ public final class SearchTask extends Task<DomNode, String> {
 	 * @param arguments Command line arguments to parse and configure this task with
 	 */
 	public SearchTask(final @NonNull String... arguments) {
-		super("SearchTask");
+		super("Search");
 		setMessage("Initializing");
-
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
 			String sourceTarget = command.getOptionValue("from");
@@ -95,12 +95,12 @@ public final class SearchTask extends Task<DomNode, String> {
 
 			String destinationTarget = command.getOptionValue("to");
 			destination = destinationTarget != null ? destinationTarget
-					: String.format(DEFAULT_DESTINATION, LocalDate
+					: String.format(DEFAULT_DESTINATION_LOCATION, getName(), LocalDate
 							.now()
 							.toString());
 
 			Integer networkTimeout = command.getParsedOptionValue("timeout");
-			timeout = networkTimeout != null ? networkTimeout : DEFAULT_TIMEOUT;
+			timeout = networkTimeout != null ? networkTimeout : DEFAULT_NETWORK_TIMEOUT;
 
 			handler = JsonHandler.acquireWriter(destination, (generator, document) -> {
 				generator.writeStartObject();
@@ -110,8 +110,8 @@ public final class SearchTask extends Task<DomNode, String> {
 
 				generator.writeFieldName("retrieved");
 				generator.writeStartArray();
-				for (String value : document.retrieved()) {
-					generator.writeString(value);
+				for (URL value : document.retrieved()) {
+					generator.writeString(value.toString());
 				}
 				generator.writeEndArray();
 
@@ -153,7 +153,7 @@ public final class SearchTask extends Task<DomNode, String> {
 					.getOptions()
 					.setPrintContentOnFailingStatusCode(false);
 			setMessage("Retrieving page content");
-			final HtmlPage pageContent = Client
+			pageContent = Client
 					.<HtmlPage>getPage(source);
 			setMessage("Retrieving page anchor tags");
 			final List<DomNode> pageAnchors = pageContent.querySelectorAll(("a"))
@@ -185,7 +185,6 @@ public final class SearchTask extends Task<DomNode, String> {
 					date,
 					time,
 					List.copyOf(retrieved));
-
 			handler.writeDocument(document);
 		} catch (final IOException exception) {
 			setState(State.FAILED);
@@ -202,17 +201,33 @@ public final class SearchTask extends Task<DomNode, String> {
 	}
 
 	@Override
-	protected synchronized String operate(final @NonNull DomNode operand) {
+	protected synchronized URL operate(final @NonNull DomNode operand) {
 		Node hrefNode = operand.getAttributes().getNamedItem("href");
 		String hrefAttribute = hrefNode != null ? hrefNode.getTextContent() : null;
+		if (hrefAttribute == null) {
+			setMessage(String.format("Could not read operand: %s", operand.getTextContent()));
+			return null;
+		}
 		setMessage(String.format("Reading operand: %s", hrefAttribute));
-		return hrefAttribute;
+		try {
+			URL url = pageContent.getFullyQualifiedUrl(hrefAttribute);
+			return url;
+		} catch (final MalformedURLException exception) {
+			String message = String.format("%s [%s] :: Failed to retrieve qualified URL from source",
+					getName(), getState());
+			_logger.severe(message);
+			setMessage(message);
+			return null;
+		}
 	}
 
 	@Override
-	protected synchronized boolean result(@NonNull String operand) {
-		setMessage(String.format("Queued result: %s", operand));
-		return retrieved.add(operand);
+	protected synchronized boolean result(URL operand) {
+		if (operand != null) {
+			setMessage(String.format("Queued result: %s", operand));
+			return retrieved.add(operand);
+		}
+		return false;
 	}
 
 	@Override

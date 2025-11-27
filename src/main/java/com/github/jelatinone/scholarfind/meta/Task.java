@@ -41,7 +41,10 @@ import lombok.experimental.NonFinal;
 public abstract class Task<Consumes, Produces>
 		implements Runnable, AutoCloseable {
 	public static Integer MAXIMUM_OPERAND_RETRIES = 3;
-	public static Options BASE_OPTION_CONFIGURATION = new Options();
+
+	public static Options DEFAULT_OPTION_CONFIGURATION = new Options();
+	public static String DEFAULT_DESTINATION_LOCATION = "output/%s-results_%s.json";
+	public static Integer DEFAULT_NETWORK_TIMEOUT = 3500;
 
 	static Logger _logger = Logger.getLogger(Task.class.getName());
 
@@ -66,20 +69,20 @@ public abstract class Task<Consumes, Produces>
 
 	static {
 		Option opt_helpMessage = new Option("help", "print a descriptive help message");
-		BASE_OPTION_CONFIGURATION.addOption(opt_helpMessage);
+		DEFAULT_OPTION_CONFIGURATION.addOption(opt_helpMessage);
 		Option opt_sourceTarget = Option.builder()
 				.longOpt("from")
 				.required()
 				.hasArg()
 				.desc("location to pull consumable source data from")
 				.get();
-		BASE_OPTION_CONFIGURATION.addOption(opt_sourceTarget);
+		DEFAULT_OPTION_CONFIGURATION.addOption(opt_sourceTarget);
 		Option opt_destinationTarget = Option.builder()
 				.longOpt("to")
 				.hasArg()
 				.desc("location to push resulting produced data to")
 				.get();
-		BASE_OPTION_CONFIGURATION.addOption(opt_destinationTarget);
+		DEFAULT_OPTION_CONFIGURATION.addOption(opt_destinationTarget);
 	}
 
 	/**

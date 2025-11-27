@@ -1,6 +1,5 @@
 package com.github.jelatinone.scholarfind.json;
 
-import java.io.Closeable;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -30,7 +29,7 @@ import lombok.experimental.FieldDefaults;
  * @author Cody Washington
  */
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-public class JsonHandler<Document> implements Closeable {
+public class JsonHandler<Document> implements AutoCloseable {
 
 	static Logger _logger = Logger.getLogger(JsonHandler.class.getName());
 	static Map<String, JsonHandler<?>> _handlers = new ConcurrentHashMap<>();
@@ -62,7 +61,7 @@ public class JsonHandler<Document> implements Closeable {
 		final ArrayNode document = acquireContent(file, mapper);
 
 		final FileWriter writer = new FileWriter(file);
-		generator = factory.createJsonGenerator(writer);
+		generator = factory.createGenerator(writer);
 
 		synchronized (generator) {
 			generator.writeStartObject();

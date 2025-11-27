@@ -2,15 +2,14 @@ package com.github.jelatinone.scholarfind.models;
 
 import java.net.URL;
 import java.time.LocalDate;
-import java.util.Map;
-import java.util.Optional;
+import java.util.Collection;
 
 public record AnnotateDocument(
-		String Name,
-		URL Domain,
-		Number Award,
-		Optional<LocalDate> Open,
-		Optional<LocalDate> Close,
-		Map<String, String> Supplement,
-		Map<String, String> Requirements) {
+		String name,
+		URL domain,
+		Double award,
+		LocalDate open,
+		LocalDate close,
+		Collection<String> supplements,
+		Collection<String> requirements) {
 }
