@@ -1,6 +1,7 @@
 package com.github.jelatinone.scholarfind.tasks;
 
 import com.github.jelatinone.scholarfind.json.JsonHandler;
+import com.github.jelatinone.scholarfind.json.JsonSerializer;
 import com.github.jelatinone.scholarfind.meta.State;
 import com.github.jelatinone.scholarfind.meta.Task;
 import com.github.jelatinone.scholarfind.models.SearchDocument;
@@ -53,19 +54,34 @@ public final class SearchTask extends Task<DomNode, URL> {
 	static Options _config = new Options();
 	static Logger _logger = Logger.getLogger(SearchTask.class.getName());
 	static CommandLineParser _parser = new DefaultParser();
+	static JsonSerializer<SearchDocument> _serializer = (generator, document) -> {
+		generator.writeStartObject();
+		generator.writeStringField("source", document.source());
+		generator.writeStringField("date", document.date());
+		generator.writeStringField("time", document.time());
+
+		generator.writeFieldName("retrieved");
+		generator.writeStartArray();
+		for (URL value : document.retrieved()) {
+			generator.writeString(value.toString());
+		}
+		generator.writeEndArray();
+
+		generator.writeEndObject();
+	};
 
 	List<URL> retrieved = new ArrayList<>();
-
 	@NonFinal
 	JsonHandler<SearchDocument> handler;
+	@NonFinal
+	HtmlPage pageContent;
+
 	@NonFinal
 	String source;
 	@NonFinal
 	String destination;
 	@NonFinal
 	Integer timeout;
-	@NonFinal
-	HtmlPage pageContent;
 
 	static {
 		_config.addOptions(DEFAULT_OPTION_CONFIGURATION);
@@ -102,30 +118,18 @@ public final class SearchTask extends Task<DomNode, URL> {
 			Integer networkTimeout = command.getParsedOptionValue("timeout");
 			timeout = networkTimeout != null ? networkTimeout : DEFAULT_NETWORK_TIMEOUT;
 
-			handler = JsonHandler.acquireWriter(destination, (generator, document) -> {
-				generator.writeStartObject();
-				generator.writeStringField("source", document.source());
-				generator.writeStringField("date", document.date());
-				generator.writeStringField("time", document.time());
-
-				generator.writeFieldName("retrieved");
-				generator.writeStartArray();
-				for (URL value : document.retrieved()) {
-					generator.writeString(value.toString());
-				}
-				generator.writeEndArray();
-
-				generator.writeEndObject();
-			});
+			handler = JsonHandler.acquireWriter(destination, _serializer);
 		} catch (final ParseException exception) {
+			String message = String.format("Initialization Failed : Failed to parse arguments %s", exception.getMessage());
+			setMessage(message);
+			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 			setState(State.FAILED);
-			_logger.severe(String.format("%s [%s] :: Failed to parse arguments %s", getName(), getState()));
-			setMessage("Initialization Failed!");
 			return;
 		} catch (final IOException exception) {
+			String message = String.format("Initialization Failed : Failed to create JSON handler", exception.getMessage());
+			setMessage(message);
+			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 			setState(State.FAILED);
-			_logger.severe(String.format("%s [%s] :: Failed to create JSON writer %s", getName(), getState()));
-			setMessage("Initialization Failed!");
 			return;
 		}
 		setMessage("Initialization Complete");
@@ -164,9 +168,10 @@ public final class SearchTask extends Task<DomNode, URL> {
 			setMessage(String.format("Found %s anchors", pageAnchors.size()));
 			return pageAnchors;
 		} catch (final IOException exception) {
+			String message = String.format("Failed to retrieve source content : %s", source);
+			setMessage(message);
+			_logger.severe(String.format("%s [%s] :: %s", message));
 			setState(State.FAILED);
-			String message = String.format("%s [%s] :: Failed to retrieve source content", getName(), getState());
-			_logger.severe(message);
 			return List.of();
 		}
 	}
@@ -187,15 +192,14 @@ public final class SearchTask extends Task<DomNode, URL> {
 					List.copyOf(retrieved));
 			handler.writeDocument(document);
 		} catch (final IOException exception) {
+			String message = String.format("Failed to write search document : %s", source);
+			setMessage(message);
+			_logger.severe(String.format("%s [%s] :: %s", message));
 			setState(State.FAILED);
-			String message = String.format("%s [%s] :: Failed to write search document",
-					getName(), getState());
-			_logger.severe(message);
 			throw exception;
 		} finally {
-			if (handler != null) {
-				handler.close();
-			}
+			retrieved.clear();
+			handler.close();
 			setMessage("Resource closed");
 		}
 	}
@@ -213,10 +217,9 @@ public final class SearchTask extends Task<DomNode, URL> {
 			URL url = pageContent.getFullyQualifiedUrl(hrefAttribute);
 			return url;
 		} catch (final MalformedURLException exception) {
-			String message = String.format("%s [%s] :: Failed to retrieve qualified URL from source",
-					getName(), getState());
-			_logger.severe(message);
+			String message = String.format("Skipping retrieved malformed URL from source : %s", source);
 			setMessage(message);
+			_logger.severe(String.format("%s [%s] :: %s", message));
 			return null;
 		}
 	}
@@ -231,8 +234,16 @@ public final class SearchTask extends Task<DomNode, URL> {
 	}
 
 	@Override
-	protected synchronized void restart() {
+	protected synchronized void restart() throws IOException {
 		setMessage("Restarting");
 		retrieved.clear();
+		try {
+			handler.close();
+			handler = JsonHandler.acquireWriter(destination, _serializer);
+		} catch (final IOException exception) {
+			setMessage("Restart Failed");
+			throw exception;
+		}
+		setMessage("Restart Completed");
 	}
 }

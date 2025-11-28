@@ -1,5 +1,6 @@
 package com.github.jelatinone.scholarfind.meta;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -111,7 +112,7 @@ public abstract class Task<Consumes, Produces>
 	 * 
 	 * @return Collection of consumable data
 	 */
-	protected abstract List<Consumes> collect();
+	protected abstract List<@NonNull Consumes> collect();
 
 	/**
 	 * Performs an operation on `consumable` data and maps to a `producible` a
@@ -120,7 +121,7 @@ public abstract class Task<Consumes, Produces>
 	 * @param operand Data to be mapped
 	 * @return Mapped result
 	 */
-	protected abstract Produces operate(final Consumes operand);
+	protected abstract Produces operate(final @NonNull Consumes operand);
 
 	/**
 	 * Self-callback function to determine the validity of the resulting data
@@ -134,10 +135,14 @@ public abstract class Task<Consumes, Produces>
 	 * Restarts the current `Task`, performs necessary clean-up operations on this
 	 * instance before restarting.
 	 * 
+	 * @throws IOException When a critical failure has occurred while trying to
+	 *                     restart
+	 * 
 	 * @apiNote Called only during {@link #run() operation} of this Task when a
 	 *          {@link #setState(State) state modification} has occurred
+	 * 
 	 */
-	protected abstract void restart();
+	protected abstract void restart() throws IOException;
 
 	/**
 	 * Provides the {@link CompletableFuture Future} of this `Task`
@@ -239,9 +244,9 @@ public abstract class Task<Consumes, Produces>
 					}
 
 					case RESTARTING -> {
-						_attempt.set(0);
 						restart();
 						setState(State.AWAITING_DEPENDENCIES);
+						_attempt.set(0);
 						break;
 					}
 
