@@ -90,6 +90,8 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	};
 
 	@NonFinal
+	WebClient client;
+	@NonFinal
 	JsonHandler<AnnotateDocument> handler;
 
 	@NonFinal
@@ -150,7 +152,10 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			}
 			agent = agentType;
 
+			client = new WebClient(BrowserVersion.BEST_SUPPORTED);
 			handler = JsonHandler.acquireWriter(destination, _serializer);
+
+			configureClient();
 		} catch (final ParseException exception) {
 			String message = String.format("Initialization Failed : Failed to parse arguments %s", exception.getMessage());
 			setMessage(message);
@@ -170,35 +175,62 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	protected synchronized List<URL> collect() {
 		File file = new File(source);
 		ObjectMapper mapper = new ObjectMapper();
+
+		List<URL> items = new ArrayList<>();
 		try {
-			List<URL> items = new ArrayList<>();
-			ArrayNode content = JsonHandler.acquireContent(file, mapper);
-			content.forEach((item) -> {
-				String text = item.textValue();
-				try {
-					URL url = URI.create(text).toURL();
-					items.add(url);
-				} catch (final MalformedURLException exception) {
-					String message = String.format("Skipped malformed URL : %s", text);
-					setMessage(message);
-					_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
-				}
+			ArrayNode results = JsonHandler.acquireContent(file, mapper);
+			results.forEach((item) -> {
+				ArrayNode retrieved = (ArrayNode) results.get("retrieved");
+				retrieved.forEach((data) -> {
+					String text = data.textValue();
+					try {
+						URL url = URI.create(text).toURL();
+						items.add(url);
+					} catch (final MalformedURLException exception) {
+						String message = String.format("Skipped malformed URL : %s", text);
+						setMessage(message);
+						_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
+					}
+				});
 			});
-			return items;
 		} catch (final IOException exception) {
 			String message = String.format("Failed to retrieve source content: %s", source);
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 			setState(State.FAILED);
-			return List.of();
 		}
+		return items;
+	}
 
+	private void configureClient() {
+		client
+				.getOptions()
+				.setDownloadImages(false);
+		client
+				.getOptions()
+				.setTimeout(timeout);
+		client
+				.getOptions()
+				.setCssEnabled(false);
+		client
+				.getOptions()
+				.setJavaScriptEnabled(false);
+		client
+				.getOptions()
+				.setThrowExceptionOnScriptError(false);
+		client
+				.getOptions()
+				.setPrintContentOnFailingStatusCode(false);
+		client
+				.getOptions()
+				.setThrowExceptionOnFailingStatusCode(true);
 	}
 
 	@Override
 	public synchronized void close() throws IOException {
-		setMessage("Closing Resources");
+		setMessage("Closing resources");
 		try {
+			client.close();
 			handler.close();
 		} catch (final IOException exception) {
 			String message = "Closing resources safely failed";
@@ -211,33 +243,11 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 	@Override
 	protected synchronized AnnotateDocument operate(final @NonNull URL operand) {
-		try (final WebClient Client = new WebClient(BrowserVersion.BEST_SUPPORTED)) {
-			setMessage("Configuring Collection");
-			Client
-					.getOptions()
-					.setDownloadImages(false);
-			Client
-					.getOptions()
-					.setTimeout(timeout);
-			Client
-					.getOptions()
-					.setCssEnabled(false);
-			Client
-					.getOptions()
-					.setJavaScriptEnabled(false);
-			Client
-					.getOptions()
-					.setThrowExceptionOnScriptError(false);
-			Client
-					.getOptions()
-					.setPrintContentOnFailingStatusCode(false);
-			Client
-					.getOptions()
-					.setThrowExceptionOnFailingStatusCode(true);
+		try {
 			setMessage("Retrieving page content");
-			final HtmlPage pageContent = Client
+			final HtmlPage pageContent = client
 					.<HtmlPage>getPage(operand);
-			setMessage("Annotating Document");
+			setMessage("Annotating content");
 			AnnotateDocument document = agent.annotate(pageContent);
 			if (document == null) {
 				String message = String.format("Failed to annotate source content", operand.toString());
@@ -281,6 +291,10 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	protected synchronized void restart() throws IOException {
 		setMessage("Restarting resources");
 		try {
+			client.close();
+			client = new WebClient(BrowserVersion.BEST_SUPPORTED);
+			configureClient();
+
 			handler.close();
 			handler = JsonHandler.acquireWriter(destination, _serializer);
 		} catch (final IOException exception) {
