@@ -1,5 +1,6 @@
 package com.github.jelatinone.scholarfind.tasks;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -7,6 +8,7 @@ import java.net.URI;
 import java.net.URL;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -29,6 +31,9 @@ import com.github.jelatinone.scholarfind.json.JsonSerializer;
 import com.github.jelatinone.scholarfind.meta.State;
 import com.github.jelatinone.scholarfind.meta.Task;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument;
+import com.github.jelatinone.scholarfind.models.AnnotateDocument.EducationLevel;
+import com.github.jelatinone.scholarfind.models.AnnotateDocument.Supplement;
+import com.github.jelatinone.scholarfind.models.AnnotateDocument.PursuedDegreeLevel;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.models.ChatModel;
@@ -45,31 +50,42 @@ import lombok.experimental.NonFinal;
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	static String DEFAULT_AGENT_PROMPT = """
-			Map all relevant scholarship information into the following JSON schema.
-			All date fields must use ISO-8601 format (YYYY-MM-DD).
+			Extract all relevant scholarship information from the provided webpage content and map it into the following JSON schema.
+			All date fields MUST use ISO-8601 format (YYYY-MM-DD).
 			If a value cannot be determined, set it to null.
+			Arrays MUST contain only valid enum values or strings as defined.
 
 			{
-			    name: <the full name of the scholarship>,
-			    domain: <the URL domain where the scholarship is located>,
-			    award: <numeric award amount as an double; if not found or non-numeric, use -1>,
+			    scholarshipTitle: <the full official name of the scholarship>,
+			    organizationName: <the organization, institution, company, funder, or sponsor offering the scholarship>,
+			    award: <numeric award amount as a double; if not found or not numeric, use null>,
 			    open: <the scholarship's opening date in ISO format (YYYY-MM-DD), or null>,
 			    close: <the scholarship's closing date in ISO format (YYYY-MM-DD), or null>,
-			    supplement: <an array of all additional supplements required, such as Letters of Recommendation, Essays, Statements, Portfolios>,
-			    requirements: <an array of all eligibility requirements, such as GPA, age, grade level, financial need, demographic qualifiers, field of study, citizenship status>
+			    pursued: <an array of PursuedDegreeLevel enum values representing eligible degree levels>,
+			    education: <an array of EducationLevel enum values representing required education levels>,
+			    supplements: <an array of Supplement enum values representing additional required materials>,
+			    requirements: <an array of strings describing all eligibility requirements not captured above>
 			}
 
-			Return only valid JSON matching this structure exactly.
+			Rules:
+			- "pursued" must use ONLY values from the PursuedDegreeLevel enum.
+			- "education" must use ONLY values from the EducationLevel enum.
+			- "supplements" must use ONLY values from the Supplement enum.
+			- "requirements" should capture ANY remaining textual requirements (GPA, age, citizenship, major, demographic qualifiers, financial need, etc.).
+			- Never invent information. If the page does not explicitly provide it, return null or an empty array.
+
+			Return ONLY valid JSON that matches this structure exactly.
 			""";
+
 	static Options _config = new Options();
 	static Logger _logger = Logger.getLogger(AnnotateTask.class.getName());
 	static CommandLineParser _parser = new DefaultParser();
 	static JsonSerializer<AnnotateDocument> _serializer = (generator, document) -> {
 		generator.writeStartObject();
 
-		generator.writeStringField("name", document.name());
-		generator.writeObjectField("url", document.domain().toString());
-		generator.writeNumberField("award", document.award().doubleValue());
+		generator.writeStringField("name", document.scholarshipTitle());
+		generator.writeStringField("url", document.domain().toString());
+		generator.writeNumberField("award", document.award());
 
 		generator.writeStringField(
 				"open",
@@ -78,15 +94,20 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 				"close",
 				document.close().toString());
 
-		generator.writeFieldName("supplement");
-		for (String value : document.supplements()) {
-			generator.writeString(value);
+		generator.writeFieldName("supplements");
+		generator.writeStartArray();
+		for (Supplement value : document.supplements()) {
+			generator.writeString(value.name());
 		}
+		generator.writeEndArray();
 
-		generator.writeFieldName("requirement");
+		generator.writeFieldName("requirements");
+		generator.writeStartArray();
 		for (String value : document.requirements()) {
 			generator.writeString(value);
 		}
+		generator.writeEndArray();
+
 		generator.writeEndObject();
 	};
 
@@ -152,6 +173,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 				return;
 			}
 			agent = agentType;
+			agent.annotator.open();
 
 			client = new WebClient(BrowserVersion.BEST_SUPPORTED);
 			handler = JsonHandler.acquireWriter(destination, _serializer);
@@ -237,6 +259,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 		setMessage("Closing resources");
 		try {
 			client.close();
+			agent.annotator.close();
 			handler.close();
 		} catch (final IOException exception) {
 			String message = "Closing resources failed";
@@ -294,8 +317,8 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			try {
 				handler.writeDocument(operand);
 				return true;
-			} catch (final IOException ignored) {
-				String message = String.format("Failed to write annotate document : %s", operand.domain().toString());
+			} catch (final IOException exception) {
+				String message = String.format("Failed to write annotate document : %s", exception.getMessage());
 				setMessage(message);
 				_logger.severe(String.format("%s [%s] :: %s", message));
 				return false;
@@ -315,6 +338,9 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			client = new WebClient(BrowserVersion.BEST_SUPPORTED);
 			configureClient();
 
+			agent.annotator.close();
+			agent.annotator.open();
+
 			handler.close();
 			handler = JsonHandler.acquireWriter(destination, _serializer);
 		} catch (final IOException exception) {
@@ -327,26 +353,41 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	}
 
 	static enum AgentType {
-		CHAT_GPT((content) -> {
-			String normalPage = content.asNormalizedText();
-			OpenAIClient client = OpenAIOkHttpClient.builder()
-					.apiKey(System.getenv("OPENAI_API_KEY"))
-					.build();
-			StructuredChatCompletionCreateParams<AnnotateDocument> params = ChatCompletionCreateParams.builder()
-					.addSystemMessage(DEFAULT_AGENT_PROMPT)
-					.addUserMessage(normalPage)
-					.model(ChatModel.GPT_4O_MINI)
-					.responseFormat(AnnotateDocument.class)
-					.build();
-			StructuredChatCompletion<AnnotateDocument> completion = client.chat()
-					.completions()
-					.create(params);
-			Choice<AnnotateDocument> choice = completion.choices().get(0);
-			AnnotateDocument document = choice.message()
-					.content()
-					.orElse(null);
+		CHAT_GPT(new AgentAnnotator() {
 
-			return document;
+			OpenAIClient client;
+
+			@Override
+			public void open() throws IOException {
+				client = OpenAIOkHttpClient.builder()
+						.apiKey(System.getenv("OPENAI_API_KEY"))
+						.build();
+			}
+
+			@Override
+			public void close() throws IOException {
+				client.close();
+			}
+
+			@Override
+			public AnnotateStub annotate(@NonNull HtmlPage content) {
+				String normalPage = content.asNormalizedText();
+				StructuredChatCompletionCreateParams<AnnotateStub> params = ChatCompletionCreateParams.builder()
+						.addSystemMessage(DEFAULT_AGENT_PROMPT)
+						.addUserMessage(normalPage)
+						.model(ChatModel.GPT_4O_MINI)
+						.responseFormat(
+								AnnotateStub.class)
+						.build();
+				StructuredChatCompletion<AnnotateStub> completion = client.chat()
+						.completions()
+						.create(params);
+				Choice<AnnotateStub> choice = completion.choices().get(0);
+				AnnotateStub annotation = choice.message()
+						.content()
+						.orElse(null);
+				return annotation;
+			}
 		});
 
 		AgentAnnotator annotator;
@@ -356,13 +397,41 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 		}
 
 		public AnnotateDocument annotate(final @NonNull HtmlPage content) {
-			return annotator.annotate(content);
+			AnnotateStub stub = annotator.annotate(content);
+			AnnotateDocument document = new AnnotateDocument(
+					stub.scholarshipTitle(),
+					stub.organizationName(),
+					content.getUrl(),
+					stub.award(),
+					stub.open(),
+					stub.close(),
+					stub.pursued(),
+					stub.education(),
+					stub.supplements(),
+					stub.requirements());
+			return document;
 		}
 	}
 
-	@FunctionalInterface
-	static interface AgentAnnotator {
+	static interface AgentAnnotator extends Closeable {
 
-		AnnotateDocument annotate(final @NonNull HtmlPage content);
+		void open() throws IOException;
+
+		void close() throws IOException;
+
+		AnnotateStub annotate(final @NonNull HtmlPage content);
+
+	}
+
+	static record AnnotateStub(
+			String scholarshipTitle,
+			String organizationName,
+			Double award,
+			LocalDate open,
+			LocalDate close,
+			Collection<PursuedDegreeLevel> pursued,
+			Collection<EducationLevel> education,
+			Collection<Supplement> supplements,
+			Collection<String> requirements) {
 	}
 }
