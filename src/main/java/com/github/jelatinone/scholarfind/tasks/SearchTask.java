@@ -102,7 +102,7 @@ public final class SearchTask extends Task<DomNode, URL> {
 	 * @param arguments Command line arguments to parse and configure this task with
 	 */
 	public SearchTask(final @NonNull String... arguments) {
-		super("Search");
+		super("search");
 		setMessage("Initializing");
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
