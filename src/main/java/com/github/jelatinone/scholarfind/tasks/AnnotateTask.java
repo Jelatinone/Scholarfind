@@ -21,6 +21,7 @@ import org.htmlunit.FailingHttpStatusCodeException;
 import org.htmlunit.WebClient;
 import org.htmlunit.html.HtmlPage;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.github.jelatinone.scholarfind.json.JsonHandler;
@@ -127,7 +128,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 	public AnnotateTask(final @NonNull String... arguments) {
 		super("annotate");
-		setMessage("Initializing");
+		setMessage("Initialization started");
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
 			String sourceTarget = command.getOptionValue("from");
@@ -144,7 +145,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 			AgentType agentType = command.getParsedOptionValue("agent");
 			if (agentType == null) {
-				String message = "Initialization Failed : Failed to retrieve agent type";
+				String message = "Initialization failed : Failed to retrieve agent type";
 				setMessage(message);
 				_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 				setState(State.FAILED);
@@ -157,48 +158,53 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 			configureClient();
 		} catch (final ParseException exception) {
-			String message = String.format("Initialization Failed : Failed to parse arguments %s", exception.getMessage());
+			String message = String.format("Initialization failed : Failed to parse arguments %s", exception.getMessage());
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 			setState(State.FAILED);
 			return;
 		} catch (final IOException exception) {
-			String message = String.format("Initialization Failed : Failed to create JSON handler", exception.getMessage());
+			String message = String.format("Initialization failed : Failed to create JSON handler", exception.getMessage());
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 			setState(State.FAILED);
 			return;
 		}
-		setMessage("Initialization Complete");
+		setMessage("Initialization complete");
 	}
 
 	protected synchronized List<URL> collect() {
+		setMessage("Collection started");
+
 		File file = new File(source);
 		ObjectMapper mapper = new ObjectMapper();
 
 		List<URL> items = new ArrayList<>();
 		try {
+			setMessage("Collection acquired");
 			ArrayNode results = JsonHandler.acquireContent(file, mapper);
-			results.forEach((item) -> {
-				ArrayNode retrieved = (ArrayNode) results.get("retrieved");
+			for (final JsonNode entry : results) {
+				ArrayNode retrieved = (ArrayNode) entry.get("retrieved");
 				retrieved.forEach((data) -> {
 					String text = data.textValue();
 					try {
 						URL url = URI.create(text).toURL();
 						items.add(url);
-					} catch (final MalformedURLException exception) {
+					} catch (final MalformedURLException | IllegalArgumentException exception) {
 						String message = String.format("Skipped malformed URL : %s", text);
 						setMessage(message);
 						_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 					}
 				});
-			});
+			}
+			setMessage(String.format("Found %d URLs", items.size()));
 		} catch (final IOException exception) {
 			String message = String.format("Failed to retrieve source content: %s", source);
 			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
+			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), exception.getMessage()));
 			setState(State.FAILED);
 		}
+		setMessage("Collection complete");
 		return items;
 	}
 
@@ -233,7 +239,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			client.close();
 			handler.close();
 		} catch (final IOException exception) {
-			String message = "Closing resources safely failed";
+			String message = "Closing resources failed";
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", message));
 			throw exception;
@@ -247,23 +253,33 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			setMessage("Retrieving page content");
 			final HtmlPage pageContent = client
 					.<HtmlPage>getPage(operand);
+
 			setMessage("Annotating content");
-			AnnotateDocument document = agent.annotate(pageContent);
-			if (document == null) {
-				String message = String.format("Failed to annotate source content", operand.toString());
+			AnnotateDocument document;
+			try {
+				document = agent.annotate(pageContent);
+			} catch (final Exception exception) {
+				document = null;
+
+				String message = String.format("Agent failed to annotate document : %s", exception.getMessage());
 				setMessage(message);
-				_logger.severe(String.format("%s [%s] :: %s", getName(), getState(),
+				_logger.fine(String.format("%s [%s] :: %s", getName(), getState(),
 						message));
-				setState(State.FAILED);
+			}
+			if (document == null) {
+				String message = String.format("Agent failed to create document", operand.toString());
+				setMessage(message);
+				_logger.fine(String.format("%s [%s] :: %s", getName(), getState(),
+						message));
 			}
 			return document;
 		} catch (final FailingHttpStatusCodeException exception) {
-			String message = String.format("Failing status code returned : %s", operand.toString());
+			String message = String.format("Failing status code returned URL : %s", operand.toString());
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(),
 					message));
 		} catch (final IOException exception) {
-			String message = String.format("Failed to retrieve source content : %s", operand.toString());
+			String message = String.format("Failed to retrieve content from URL : %s", operand.toString());
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(),
 					message));
@@ -279,11 +295,15 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 				handler.writeDocument(operand);
 				return true;
 			} catch (final IOException ignored) {
+				String message = String.format("Failed to write annotate document : %s", operand.domain().toString());
+				setMessage(message);
+				_logger.severe(String.format("%s [%s] :: %s", message));
+				return false;
 			}
 		}
-		String message = String.format("Failed to write annotate document : %s", operand.domain().toString());
+		String message = "Failed to write annotate document: operand was null";
 		setMessage(message);
-		_logger.severe(String.format("%s [%s] :: %s", message));
+		_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 		return false;
 	}
 
@@ -309,7 +329,9 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	static enum AgentType {
 		CHAT_GPT((content) -> {
 			String normalPage = content.asNormalizedText();
-			OpenAIClient client = OpenAIOkHttpClient.fromEnv();
+			OpenAIClient client = OpenAIOkHttpClient.builder()
+					.apiKey(System.getenv("OPENAI_API_KEY"))
+					.build();
 			StructuredChatCompletionCreateParams<AnnotateDocument> params = ChatCompletionCreateParams.builder()
 					.addSystemMessage(DEFAULT_AGENT_PROMPT)
 					.addUserMessage(normalPage)
@@ -323,6 +345,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			AnnotateDocument document = choice.message()
 					.content()
 					.orElse(null);
+
 			return document;
 		});
 
@@ -333,7 +356,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 		}
 
 		public AnnotateDocument annotate(final @NonNull HtmlPage content) {
-			return annotate(content);
+			return annotator.annotate(content);
 		}
 	}
 

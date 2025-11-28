@@ -174,7 +174,9 @@ public final class Main {
 			} catch (final IOException exception) {
 				_logger.fine(String.format("Main :: %s failed to close %s", task.getName(), exception.getMessage()));
 			} catch (final Exception exception) {
-				_logger.fine(String.format("Main :: %s failed to operate %s", task.getName(), exception.getMessage()));
+				_logger.fine(String.format("Main :: %s failed to run %s", task.getName(), exception.getMessage()));
+			} catch (final Error error) {
+				_logger.fine(String.format("Main :: %s critical error occurred %s", task.getName(), error.getMessage()));
 			}
 		});
 		task.withListener(Main::update);

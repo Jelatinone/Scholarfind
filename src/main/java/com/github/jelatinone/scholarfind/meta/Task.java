@@ -187,7 +187,8 @@ public abstract class Task<Consumes, Produces>
 		boolean lastOk = true;
 		while (!_completable.isDone()) {
 			try {
-				switch (_state.get()) {
+				State state = _state.get();
+				switch (state) {
 					case CREATED -> {
 						setState(State.AWAITING_DEPENDENCIES);
 						break;
@@ -260,11 +261,11 @@ public abstract class Task<Consumes, Produces>
 						throw new IllegalStateException("Invalid State Accessed");
 					}
 				}
-			} catch (final Exception exception) {
+			} catch (final Throwable throwable) {
 				setState(State.FAILED);
-				_completable.completeExceptionally(exception);
-				_logger.severe(String.format("%s [%s] :: %s", getName(), exception.getMessage()));
-				exception.printStackTrace();
+				_completable.completeExceptionally(throwable);
+				_logger.severe(String.format("%s [%s] :: %s", getName(), throwable.getMessage()));
+				throwable.printStackTrace();
 			}
 		}
 	}

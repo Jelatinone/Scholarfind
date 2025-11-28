@@ -103,7 +103,7 @@ public final class SearchTask extends Task<DomNode, URL> {
 	 */
 	public SearchTask(final @NonNull String... arguments) {
 		super("search");
-		setMessage("Initializing");
+		setMessage("Initialization started");
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
 			String sourceTarget = command.getOptionValue("from");
@@ -120,24 +120,25 @@ public final class SearchTask extends Task<DomNode, URL> {
 
 			handler = JsonHandler.acquireWriter(destination, _serializer);
 		} catch (final ParseException exception) {
-			String message = String.format("Initialization Failed : Failed to parse arguments %s", exception.getMessage());
+			String message = String.format("Initialization failed : Failed to parse arguments %s", exception.getMessage());
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 			setState(State.FAILED);
 			return;
 		} catch (final IOException exception) {
-			String message = String.format("Initialization Failed : Failed to create JSON handler", exception.getMessage());
+			String message = String.format("Initialization failed : Failed to create JSON handler", exception.getMessage());
 			setMessage(message);
 			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
 			setState(State.FAILED);
 			return;
 		}
-		setMessage("Initialization Complete");
+		setMessage("Initialization complete");
 	}
 
 	protected synchronized List<DomNode> collect() {
+		setMessage("Collection started");
 		try (WebClient Client = new WebClient(BrowserVersion.BEST_SUPPORTED)) {
-			setMessage("Configuring Collection");
+			setMessage("Collection configuring");
 			Client
 					.getOptions()
 					.setDownloadImages(false);
@@ -165,7 +166,8 @@ public final class SearchTask extends Task<DomNode, URL> {
 					.filter(DomNode::hasAttributes)
 					.filter(Objects::nonNull)
 					.toList();
-			setMessage(String.format("Found %s anchors", pageAnchors.size()));
+			setMessage(String.format("Found %d anchors", pageAnchors.size()));
+
 			return pageAnchors;
 		} catch (final IOException exception) {
 			String message = String.format("Failed to retrieve source content : %s", source);
@@ -178,6 +180,7 @@ public final class SearchTask extends Task<DomNode, URL> {
 
 	@Override
 	public synchronized void close() throws IOException {
+		setMessage("Closing resources");
 		final String date = LocalDate
 				.now()
 				.toString();
@@ -197,11 +200,16 @@ public final class SearchTask extends Task<DomNode, URL> {
 			_logger.severe(String.format("%s [%s] :: %s", message));
 			setState(State.FAILED);
 			throw exception;
-		} finally {
-			retrieved.clear();
-			handler.close();
-			setMessage("Resource closed");
 		}
+		try {
+			handler.close();
+		} catch (final IOException exception) {
+			String message = "Closing resources safely failed";
+			setMessage(message);
+			_logger.severe(String.format("%s [%s] :: %s", message));
+			throw exception;
+		}
+		setMessage("Close resources safely completed");
 	}
 
 	@Override
