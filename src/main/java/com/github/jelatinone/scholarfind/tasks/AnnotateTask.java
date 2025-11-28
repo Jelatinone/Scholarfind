@@ -85,7 +85,12 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 		generator.writeStringField("name", document.scholarshipTitle());
 		generator.writeStringField("url", document.domain().toString());
-		generator.writeNumberField("award", document.award());
+
+		if (document.award() != null) {
+			generator.writeNumberField("award", document.award());
+		} else {
+			generator.writeNullField("award");
+		}
 
 		generator.writeStringField(
 				"open",
@@ -93,6 +98,20 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 		generator.writeStringField(
 				"close",
 				document.close().toString());
+
+		generator.writeFieldName("pursued");
+		generator.writeStartArray();
+		for (PursuedDegreeLevel value : document.pursued()) {
+			generator.writeString(value.name());
+		}
+		generator.writeEndArray();
+
+		generator.writeFieldName("education");
+		generator.writeStartArray();
+		for (EducationLevel value : document.education()) {
+			generator.writeString(value.name());
+		}
+		generator.writeEndArray();
 
 		generator.writeFieldName("supplements");
 		generator.writeStartArray();
