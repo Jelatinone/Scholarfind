@@ -9,6 +9,7 @@ import java.util.ListIterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.commons.cli.Option;
@@ -139,7 +140,7 @@ public abstract class Task<Consumes, Produces>
 	 *                     restart
 	 * 
 	 * @apiNote Called only during {@link #run() operation} of this Task when a
-	 *          {@link #setState(State) state modification} has occurred
+	 *          {@link #withState(State) state modification} has occurred
 	 * 
 	 */
 	protected abstract void restart() throws IOException;
@@ -190,7 +191,7 @@ public abstract class Task<Consumes, Produces>
 				State state = _state.get();
 				switch (state) {
 					case CREATED -> {
-						setState(State.AWAITING_DEPENDENCIES);
+						withState(State.AWAITING_DEPENDENCIES);
 						break;
 					}
 
@@ -199,23 +200,23 @@ public abstract class Task<Consumes, Produces>
 								.map(Task::completable)
 								.toArray(CompletableFuture[]::new);
 						CompletableFuture.allOf(dependents).join();
-						setState(State.COLLECTING);
+						withState(State.COLLECTING);
 						break;
 					}
 
 					case COLLECTING -> {
 						iterableData = collect().listIterator();
-						setState(State.OPERATING);
+						withState(State.OPERATING);
 						break;
 					}
 
 					case OPERATING -> {
 						if (!iterableData.hasNext()) {
-							setState(State.COMPLETED);
+							withState(State.COMPLETED);
 							break;
 						}
 						result = operate(operand = iterableData.next());
-						setState(State.PRODUCING_RESULT);
+						withState(State.PRODUCING_RESULT);
 						break;
 					}
 
@@ -225,9 +226,9 @@ public abstract class Task<Consumes, Produces>
 							_attempt.set(0);
 						}
 						if (!ok) {
-							setState(State.RETRYING);
+							withState(State.RETRYING);
 						} else {
-							setState(State.OPERATING);
+							withState(State.OPERATING);
 						}
 						lastOk = ok;
 						break;
@@ -237,16 +238,16 @@ public abstract class Task<Consumes, Produces>
 						final int currentAttempt = _attempt.getAndIncrement();
 						if (currentAttempt >= MAXIMUM_OPERAND_RETRIES) {
 							iterableData.previous();
-							setState(State.OPERATING);
+							withState(State.OPERATING);
 						} else {
-							setState(State.PRODUCING_RESULT);
+							withState(State.PRODUCING_RESULT);
 						}
 						break;
 					}
 
 					case RESTARTING -> {
 						restart();
-						setState(State.AWAITING_DEPENDENCIES);
+						withState(State.AWAITING_DEPENDENCIES);
 						_attempt.set(0);
 						break;
 					}
@@ -262,9 +263,9 @@ public abstract class Task<Consumes, Produces>
 					}
 				}
 			} catch (final Throwable throwable) {
-				setState(State.FAILED);
+				withState(State.FAILED);
 				_completable.completeExceptionally(throwable);
-				_logger.severe(String.format("%s [%s] :: %s", getName(), throwable.getMessage()));
+				_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), throwable.getMessage()));
 				throwable.printStackTrace();
 			}
 		}
@@ -278,7 +279,7 @@ public abstract class Task<Consumes, Produces>
 	 *                               {@link State#FAILED failed} or
 	 *                               {@link State#COMPLETED completed} Task
 	 */
-	protected synchronized void setState(final @NonNull State state) throws IllegalStateException {
+	protected synchronized void withState(final @NonNull State state) throws IllegalStateException {
 		final State currentState = _state.get();
 		if (currentState == State.FAILED || currentState == State.COMPLETED) {
 			throw new IllegalStateException(
@@ -297,9 +298,11 @@ public abstract class Task<Consumes, Produces>
 	 * with a descriptive message.
 	 * 
 	 * @param message Descriptive message of current operation of this Task
+	 * @param level   Level of logging to attribute to this message
 	 */
-	protected synchronized void setMessage(final @NonNull String message) {
+	protected synchronized void withMessage(final @NonNull String message, final @NonNull Level level) {
 		this.message = message;
+		_logger.log(level, String.format("%s [%s] :: %s", getName(), getState(), message));
 		_listeners.forEach(Runnable::run);
 	}
 

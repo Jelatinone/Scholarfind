@@ -5,21 +5,20 @@ import java.time.LocalDate;
 import java.util.Collection;
 
 public record AnnotateDocument(
-		String scholarshipTitle,
-		String organizationName,
-
 		URL domain,
+		AnnotateStub stub) {
 
-		Double award,
-
-		LocalDate open,
-		LocalDate close,
-
-		Collection<PursuedDegreeLevel> pursued,
-		Collection<EducationLevel> education,
-
-		Collection<Supplement> supplements,
-		Collection<String> requirements) {
+	public static record AnnotateStub(
+			String scholarshipTitle,
+			String organizationName,
+			Double award,
+			LocalDate open,
+			LocalDate close,
+			Collection<PursuedDegreeLevel> pursued,
+			Collection<EducationLevel> education,
+			Collection<Supplement> supplements,
+			Collection<String> requirements) {
+	}
 
 	public enum Supplement {
 		ESSAY_REQUIRED,

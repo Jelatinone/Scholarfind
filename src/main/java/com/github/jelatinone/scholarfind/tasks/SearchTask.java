@@ -19,6 +19,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.commons.cli.CommandLine;
@@ -103,7 +104,7 @@ public final class SearchTask extends Task<DomNode, URL> {
 	 */
 	public SearchTask(final @NonNull String... arguments) {
 		super("search");
-		setMessage("Initialization started");
+		withMessage("Initialization started", Level.INFO);
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
 			String sourceTarget = command.getOptionValue("from");
@@ -120,25 +121,25 @@ public final class SearchTask extends Task<DomNode, URL> {
 
 			handler = JsonHandler.acquireWriter(destination, _serializer);
 		} catch (final ParseException exception) {
-			String message = String.format("Initialization failed : Failed to parse arguments %s", exception.getMessage());
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
-			setState(State.FAILED);
+			withState(State.FAILED);
+			String message = String.format("Initialization failed : Failed to parse arguments %s",
+					exception.getMessage());
+			withMessage(message, Level.SEVERE);
 			return;
 		} catch (final IOException exception) {
-			String message = String.format("Initialization failed : Failed to create JSON handler", exception.getMessage());
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
-			setState(State.FAILED);
+			withState(State.FAILED);
+			String message = String.format("Initialization failed : Failed to create JSON handler %s",
+					exception.getMessage());
+			withMessage(message, Level.SEVERE);
 			return;
 		}
-		setMessage("Initialization complete");
+		withMessage("Initialization complete", Level.INFO);
 	}
 
 	protected synchronized List<DomNode> collect() {
-		setMessage("Collection started");
+		withMessage("Collection started", Level.INFO);
 		try (WebClient Client = new WebClient(BrowserVersion.BEST_SUPPORTED)) {
-			setMessage("Collection configuring");
+			withMessage("Collection configuring", Level.INFO);
 			Client
 					.getOptions()
 					.setDownloadImages(false);
@@ -157,30 +158,29 @@ public final class SearchTask extends Task<DomNode, URL> {
 			Client
 					.getOptions()
 					.setPrintContentOnFailingStatusCode(false);
-			setMessage("Retrieving page content");
+			withMessage("Retrieving page content", Level.INFO);
 			pageContent = Client
 					.<HtmlPage>getPage(source);
-			setMessage("Retrieving page anchor tags");
+			withMessage("Retrieving page anchor tags", Level.INFO);
 			final List<DomNode> pageAnchors = pageContent.querySelectorAll(("a"))
 					.stream()
 					.filter(DomNode::hasAttributes)
 					.filter(Objects::nonNull)
 					.toList();
-			setMessage(String.format("Found %d anchors", pageAnchors.size()));
 
+			withMessage(String.format("Found %d anchors", pageAnchors.size()), Level.INFO);
 			return pageAnchors;
 		} catch (final IOException exception) {
 			String message = String.format("Failed to retrieve source content : %s", source);
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", message));
-			setState(State.FAILED);
+			withMessage(message, Level.SEVERE);
+			withState(State.FAILED);
 			return List.of();
 		}
 	}
 
 	@Override
 	public synchronized void close() throws IOException {
-		setMessage("Closing resources");
+		withMessage("Closing resources", Level.INFO);
 		final String date = LocalDate
 				.now()
 				.toString();
@@ -196,20 +196,19 @@ public final class SearchTask extends Task<DomNode, URL> {
 			handler.writeDocument(document);
 		} catch (final IOException exception) {
 			String message = String.format("Failed to write search document : %s", source);
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", message));
-			setState(State.FAILED);
+			withMessage(message, Level.SEVERE);
+			withState(State.FAILED);
 			throw exception;
 		}
 		try {
 			handler.close();
 		} catch (final IOException exception) {
-			String message = "Closing resources safely failed";
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", message));
+			String message = String.format("Closing resources safely failed : %s", source);
+			withMessage(message, Level.SEVERE);
+			withState(State.FAILED);
 			throw exception;
 		}
-		setMessage("Close resources safely completed");
+		withMessage("Close resources safely completed", Level.INFO);
 	}
 
 	@Override
@@ -217,17 +216,16 @@ public final class SearchTask extends Task<DomNode, URL> {
 		Node hrefNode = operand.getAttributes().getNamedItem("href");
 		String hrefAttribute = hrefNode != null ? hrefNode.getTextContent() : null;
 		if (hrefAttribute == null) {
-			setMessage(String.format("Could not read operand: %s", operand.getTextContent()));
+			withMessage(String.format("Could not read operand: %s", operand.getTextContent()), Level.WARNING);
 			return null;
 		}
-		setMessage(String.format("Reading operand: %s", hrefAttribute));
+		withMessage(String.format("Reading operand: %s", hrefAttribute), Level.INFO);
 		try {
 			URL url = pageContent.getFullyQualifiedUrl(hrefAttribute);
 			return url;
 		} catch (final MalformedURLException exception) {
 			String message = String.format("Skipping retrieved malformed URL from source : %s", source);
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", message));
+			withMessage(message, Level.SEVERE);
 			return null;
 		}
 	}
@@ -235,7 +233,7 @@ public final class SearchTask extends Task<DomNode, URL> {
 	@Override
 	protected synchronized boolean result(URL operand) {
 		if (operand != null) {
-			setMessage(String.format("Queued result: %s", operand));
+			withMessage(String.format("Queued result : %s", operand), Level.INFO);
 			return retrieved.add(operand);
 		}
 		return false;
@@ -243,15 +241,15 @@ public final class SearchTask extends Task<DomNode, URL> {
 
 	@Override
 	protected synchronized void restart() throws IOException {
-		setMessage("Restarting");
+		withMessage("Restarting", Level.INFO);
 		retrieved.clear();
 		try {
 			handler.close();
 			handler = JsonHandler.acquireWriter(destination, _serializer);
 		} catch (final IOException exception) {
-			setMessage("Restart Failed");
+			withMessage("Restart failed", Level.SEVERE);
 			throw exception;
 		}
-		setMessage("Restart Completed");
+		withMessage("Restart completed", Level.INFO);
 	}
 }

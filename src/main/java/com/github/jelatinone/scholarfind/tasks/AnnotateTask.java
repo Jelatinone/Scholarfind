@@ -1,6 +1,5 @@
 package com.github.jelatinone.scholarfind.tasks;
 
-import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -8,8 +7,8 @@ import java.net.URI;
 import java.net.URL;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.commons.cli.CommandLine;
@@ -26,22 +25,17 @@ import org.htmlunit.html.HtmlPage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.github.jelatinone.scholarfind.agent.AgentHandler;
+import com.github.jelatinone.scholarfind.agent.implementation.OpenAIAgentHandler;
 import com.github.jelatinone.scholarfind.json.JsonHandler;
 import com.github.jelatinone.scholarfind.json.JsonSerializer;
 import com.github.jelatinone.scholarfind.meta.State;
 import com.github.jelatinone.scholarfind.meta.Task;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument;
+import com.github.jelatinone.scholarfind.models.AnnotateDocument.AnnotateStub;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.EducationLevel;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.Supplement;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.PursuedDegreeLevel;
-import com.openai.client.OpenAIClient;
-import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.models.ChatModel;
-import com.openai.models.chat.completions.ChatCompletionCreateParams;
-import com.openai.models.chat.completions.StructuredChatCompletion;
-import com.openai.models.chat.completions.StructuredChatCompletion.Choice;
-import com.openai.models.chat.completions.StructuredChatCompletionCreateParams;
-
 import lombok.AccessLevel;
 import lombok.NonNull;
 import lombok.experimental.FieldDefaults;
@@ -81,48 +75,50 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	static Logger _logger = Logger.getLogger(AnnotateTask.class.getName());
 	static CommandLineParser _parser = new DefaultParser();
 	static JsonSerializer<AnnotateDocument> _serializer = (generator, document) -> {
+		final AnnotateStub stub = document.stub();
+
 		generator.writeStartObject();
 
-		generator.writeStringField("name", document.scholarshipTitle());
+		generator.writeStringField("name", stub.scholarshipTitle());
 		generator.writeStringField("url", document.domain().toString());
 
-		if (document.award() != null) {
-			generator.writeNumberField("award", document.award());
+		if (stub.award() != null) {
+			generator.writeNumberField("award", stub.award());
 		} else {
 			generator.writeNullField("award");
 		}
 
 		generator.writeStringField(
 				"open",
-				document.open().toString());
+				stub.open().toString());
 		generator.writeStringField(
 				"close",
-				document.close().toString());
+				stub.close().toString());
 
 		generator.writeFieldName("pursued");
 		generator.writeStartArray();
-		for (PursuedDegreeLevel value : document.pursued()) {
+		for (PursuedDegreeLevel value : stub.pursued()) {
 			generator.writeString(value.name());
 		}
 		generator.writeEndArray();
 
 		generator.writeFieldName("education");
 		generator.writeStartArray();
-		for (EducationLevel value : document.education()) {
+		for (EducationLevel value : stub.education()) {
 			generator.writeString(value.name());
 		}
 		generator.writeEndArray();
 
 		generator.writeFieldName("supplements");
 		generator.writeStartArray();
-		for (Supplement value : document.supplements()) {
+		for (Supplement value : stub.supplements()) {
 			generator.writeString(value.name());
 		}
 		generator.writeEndArray();
 
 		generator.writeFieldName("requirements");
 		generator.writeStartArray();
-		for (String value : document.requirements()) {
+		for (String value : stub.requirements()) {
 			generator.writeString(value);
 		}
 		generator.writeEndArray();
@@ -134,6 +130,8 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	WebClient client;
 	@NonFinal
 	JsonHandler<AnnotateDocument> handler;
+	@NonFinal
+	AgentHandler<AnnotateStub> agent;
 
 	@NonFinal
 	String source;
@@ -142,7 +140,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 	@NonFinal
 	Integer timeout;
 	@NonFinal
-	AgentType agent;
+	AgentType type;
 
 	static {
 		_config.addOptions(DEFAULT_OPTION_CONFIGURATION);
@@ -168,7 +166,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 	public AnnotateTask(final @NonNull String... arguments) {
 		super("annotate");
-		setMessage("Initialization started");
+		withMessage("Initialization started", Level.INFO);
 		try {
 			CommandLine command = _parser.parse(_config, arguments);
 			String sourceTarget = command.getOptionValue("from");
@@ -186,13 +184,12 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			AgentType agentType = command.getParsedOptionValue("agent");
 			if (agentType == null) {
 				String message = "Initialization failed : Failed to retrieve agent type";
-				setMessage(message);
-				_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
-				setState(State.FAILED);
+				withMessage(message, Level.SEVERE);
+				withState(State.FAILED);
 				return;
 			}
-			agent = agentType;
-			agent.annotator.open();
+			type = agentType;
+			agent = type.acquire();
 
 			client = new WebClient(BrowserVersion.BEST_SUPPORTED);
 			handler = JsonHandler.acquireWriter(destination, _serializer);
@@ -200,29 +197,27 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			configureClient();
 		} catch (final ParseException exception) {
 			String message = String.format("Initialization failed : Failed to parse arguments %s", exception.getMessage());
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
-			setState(State.FAILED);
+			withMessage(message, Level.SEVERE);
+			withState(State.FAILED);
 			return;
 		} catch (final IOException exception) {
 			String message = String.format("Initialization failed : Failed to create JSON handler", exception.getMessage());
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
-			setState(State.FAILED);
+			withMessage(message, Level.SEVERE);
+			withState(State.FAILED);
 			return;
 		}
-		setMessage("Initialization complete");
+		withMessage("Initialization complete", Level.INFO);
 	}
 
 	protected synchronized List<URL> collect() {
-		setMessage("Collection started");
+		withMessage("Collection started", Level.INFO);
 
 		File file = new File(source);
 		ObjectMapper mapper = new ObjectMapper();
 
 		List<URL> items = new ArrayList<>();
 		try {
-			setMessage("Collection acquired");
+			withMessage("Collection acquired", Level.INFO);
 			ArrayNode results = JsonHandler.acquireContent(file, mapper);
 			for (final JsonNode entry : results) {
 				ArrayNode retrieved = (ArrayNode) entry.get("retrieved");
@@ -233,19 +228,17 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 						items.add(url);
 					} catch (final MalformedURLException | IllegalArgumentException exception) {
 						String message = String.format("Skipped malformed URL : %s", text);
-						setMessage(message);
-						_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
+						withMessage(message, Level.SEVERE);
 					}
 				});
 			}
-			setMessage(String.format("Found %d URLs", items.size()));
+			withMessage(String.format("Found %d URLs", items.size()), Level.INFO);
 		} catch (final IOException exception) {
 			String message = String.format("Failed to retrieve source content: %s", source);
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), exception.getMessage()));
-			setState(State.FAILED);
+			withMessage(message, Level.SEVERE);
+			withState(State.FAILED);
 		}
-		setMessage("Collection complete");
+		withMessage("Collection complete", Level.INFO);
 		return items;
 	}
 
@@ -275,58 +268,49 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 	@Override
 	public synchronized void close() throws IOException {
-		setMessage("Closing resources");
+		withMessage("Closing resources", Level.INFO);
 		try {
 			client.close();
-			agent.annotator.close();
+			agent.close();
 			handler.close();
 		} catch (final IOException exception) {
 			String message = "Closing resources failed";
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", message));
+			withMessage(message, Level.SEVERE);
 			throw exception;
 		}
-		setMessage("Close resources safely completed");
+		withMessage("Close resources safely completed", Level.INFO);
 	}
 
 	@Override
 	protected synchronized AnnotateDocument operate(final @NonNull URL operand) {
 		try {
-			setMessage("Retrieving page content");
+			withMessage("Retrieving page content", Level.INFO);
 			final HtmlPage pageContent = client
 					.<HtmlPage>getPage(operand);
 
-			setMessage("Annotating content");
+			withMessage("Annotating content", Level.INFO);
 			AnnotateDocument document;
 			try {
-				document = agent.annotate(pageContent);
+				AnnotateStub stub = agent.annotate(pageContent);
+				document = new AnnotateDocument(operand, stub);
 			} catch (final Exception exception) {
 				document = null;
-
 				String message = String.format("Agent failed to annotate document : %s", exception.getMessage());
-				setMessage(message);
-				_logger.fine(String.format("%s [%s] :: %s", getName(), getState(),
-						message));
+				withMessage(message, Level.SEVERE);
 			}
 			if (document == null) {
 				String message = String.format("Agent failed to create document", operand.toString());
-				setMessage(message);
-				_logger.fine(String.format("%s [%s] :: %s", getName(), getState(),
-						message));
+				withMessage(message, Level.SEVERE);
 			}
 			return document;
 		} catch (final FailingHttpStatusCodeException exception) {
 			String message = String.format("Failing status code returned URL : %s", operand.toString());
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(),
-					message));
+			withMessage(message, Level.SEVERE);
 		} catch (final IOException exception) {
 			String message = String.format("Failed to retrieve content from URL : %s", operand.toString());
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", getName(), getState(),
-					message));
+			withMessage(message, Level.SEVERE);
 		}
-		setState(State.FAILED);
+		withState(State.FAILED);
 		return null;
 	}
 
@@ -338,119 +322,44 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 				return true;
 			} catch (final IOException exception) {
 				String message = String.format("Failed to write annotate document : %s", exception.getMessage());
-				setMessage(message);
-				_logger.severe(String.format("%s [%s] :: %s", message));
+				withMessage(message, Level.SEVERE);
 				return false;
 			}
 		}
 		String message = "Failed to write annotate document: operand was null";
-		setMessage(message);
-		_logger.severe(String.format("%s [%s] :: %s", getName(), getState(), message));
+		withMessage(message, Level.SEVERE);
 		return false;
 	}
 
 	@Override
 	protected synchronized void restart() throws IOException {
-		setMessage("Restarting resources");
+		withMessage("Restarting resources", Level.INFO);
 		try {
 			client.close();
 			client = new WebClient(BrowserVersion.BEST_SUPPORTED);
 			configureClient();
 
-			agent.annotator.close();
-			agent.annotator.open();
+			agent.close();
+			agent = type.acquire();
 
 			handler.close();
 			handler = JsonHandler.acquireWriter(destination, _serializer);
 		} catch (final IOException exception) {
 			String message = "Restarting resources safely failed";
-			setMessage(message);
-			_logger.severe(String.format("%s [%s] :: %s", message));
+			withMessage(message, Level.SEVERE);
 			throw exception;
 		}
-		setMessage("Restarting resources safely completed");
+		withMessage("Restarting resources safely completed", Level.INFO);
 	}
 
-	static enum AgentType {
-		CHAT_GPT(new AgentAnnotator() {
-
-			OpenAIClient client;
-
+	public enum AgentType {
+		CHAT_GPT {
 			@Override
-			public void open() throws IOException {
-				client = OpenAIOkHttpClient.builder()
-						.apiKey(System.getenv("OPENAI_API_KEY"))
-						.build();
+			public AgentHandler<AnnotateStub> acquire() {
+				return new OpenAIAgentHandler<AnnotateStub>(DEFAULT_AGENT_PROMPT, AnnotateStub.class);
 			}
+		};
 
-			@Override
-			public void close() throws IOException {
-				client.close();
-			}
-
-			@Override
-			public AnnotateStub annotate(@NonNull HtmlPage content) {
-				String normalPage = content.asNormalizedText();
-				StructuredChatCompletionCreateParams<AnnotateStub> params = ChatCompletionCreateParams.builder()
-						.addSystemMessage(DEFAULT_AGENT_PROMPT)
-						.addUserMessage(normalPage)
-						.model(ChatModel.GPT_4O_MINI)
-						.responseFormat(
-								AnnotateStub.class)
-						.build();
-				StructuredChatCompletion<AnnotateStub> completion = client.chat()
-						.completions()
-						.create(params);
-				Choice<AnnotateStub> choice = completion.choices().get(0);
-				AnnotateStub annotation = choice.message()
-						.content()
-						.orElse(null);
-				return annotation;
-			}
-		});
-
-		AgentAnnotator annotator;
-
-		private AgentType(final AgentAnnotator annotator) {
-			this.annotator = annotator;
-		}
-
-		public AnnotateDocument annotate(final @NonNull HtmlPage content) {
-			AnnotateStub stub = annotator.annotate(content);
-			AnnotateDocument document = new AnnotateDocument(
-					stub.scholarshipTitle(),
-					stub.organizationName(),
-					content.getUrl(),
-					stub.award(),
-					stub.open(),
-					stub.close(),
-					stub.pursued(),
-					stub.education(),
-					stub.supplements(),
-					stub.requirements());
-			return document;
-		}
-	}
-
-	static interface AgentAnnotator extends Closeable {
-
-		void open() throws IOException;
-
-		void close() throws IOException;
-
-		AnnotateStub annotate(final @NonNull HtmlPage content);
-
-	}
-
-	static record AnnotateStub(
-			String scholarshipTitle,
-			String organizationName,
-			Double award,
-			LocalDate open,
-			LocalDate close,
-			Collection<PursuedDegreeLevel> pursued,
-			Collection<EducationLevel> education,
-			Collection<Supplement> supplements,
-			Collection<String> requirements) {
+		public abstract AgentHandler<AnnotateStub> acquire();
 	}
 }
