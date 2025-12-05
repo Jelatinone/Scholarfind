@@ -5,6 +5,6 @@ RUN ./gradlew shadowJar
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=build /build/build/libs/Scholarfind-1.0-all.jar /app/Scholarfind-1.0-all.jar
-ENTRYPOINT ["java", "-jar", "/app/myapp.jar"]
+COPY --from=build /build/build/libs/Scholarfind-1.0-all.jar /app/scholarfind.jar
+ENTRYPOINT ["java", "-jar", "/app/scholarfind.jar"]
 CMD []
