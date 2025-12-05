@@ -237,10 +237,15 @@ public abstract class Task<Consumes, Produces>
 					case RETRYING -> {
 						final int currentAttempt = _attempt.getAndIncrement();
 						if (currentAttempt >= MAXIMUM_OPERAND_RETRIES) {
+							_attempt.set(0);
+							if (iterableData.hasNext()) {
+								withState(State.OPERATING);
+							} else {
+								withState(State.COMPLETED);
+							}
+						} else {
 							iterableData.previous();
 							withState(State.OPERATING);
-						} else {
-							withState(State.PRODUCING_RESULT);
 						}
 						break;
 					}
