@@ -310,7 +310,6 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			String message = String.format("Failed to retrieve content from URL : %s", operand.toString());
 			withMessage(message, Level.SEVERE);
 		}
-		withState(State.FAILED);
 		return null;
 	}
 

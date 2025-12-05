@@ -72,6 +72,7 @@ public final class SearchTask extends Task<DomNode, URL> {
 	};
 
 	List<URL> retrieved = new ArrayList<>();
+
 	@NonFinal
 	JsonHandler<SearchDocument> handler;
 	@NonFinal
