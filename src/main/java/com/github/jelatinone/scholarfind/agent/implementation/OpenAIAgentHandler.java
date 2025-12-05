@@ -49,7 +49,7 @@ public class OpenAIAgentHandler<Stub> implements AgentHandler<Stub> {
 
 	@Override
 	public Stub annotate(@NonNull HtmlPage page) {
-		String content = page.asNormalizedText();
+		String content = page.getVisibleText();
 		StructuredChatCompletionCreateParams<Stub> params = ChatCompletionCreateParams.builder()
 				.addSystemMessage(prompt)
 				.addUserMessage(content)
