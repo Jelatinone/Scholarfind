@@ -228,6 +228,9 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 					try {
 						URL url = URI.create(text).toURL();
 						items.add(url);
+
+						String message = String.format("Added valid URL : %s", text);
+						withMessage(message, Level.SEVERE);						
 					} catch (final MalformedURLException | IllegalArgumentException exception) {
 						String message = String.format("Skipped malformed URL : %s", text);
 						withMessage(message, Level.SEVERE);

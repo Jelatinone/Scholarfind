@@ -93,12 +93,15 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
         Return exactly one value: `true` if all scholarship requirements AND all
         profile-specified preferences are met; otherwise return `false`.
 
-        Student profile: 
-
         --BEGIN PROFILE--
         %s
         --END PROFILE--
         """;
+    static String DEFAULT_AGENT_TEXT = """
+        --BEGIN SCHOLARSHIP--
+        %s
+        --END SCHOLARSHIP--
+                """;
     
     static Options _config = new Options();
     static Logger _logger = Logger.getLogger(AnnotateTask.class.getName());
@@ -166,7 +169,6 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
     String destination;
     @NonFinal 
     String profile;
-
     @NonFinal
     AgentType type;
 
@@ -299,17 +301,18 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
             withMessage(message, Level.INFO);
             return new BooleanDocument(false);
         }
+
         withMessage(String.format("Annotating content : %s", name), Level.INFO);
 
-
-        String textContent = operand.asText();
-        BooleanDocument annotation = agent.annotate(textContent);
+        String scholarshipJson = operand.toString();
+        String agentJson = String.format(DEFAULT_AGENT_TEXT, scholarshipJson);
+        BooleanDocument annotation = agent.annotate(agentJson);
 
         if(annotation == null) {
             String message = String.format("Agent failed to create document : %s", name);
 			withMessage(message, Level.SEVERE);
         }
-        
+
         return annotation;
     }
 
@@ -324,7 +327,9 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
         }
         if(annotation) {
             try {
-                handler.writeDocument(node);
+                String message = "Wrote document : operand was true";
+                withMessage(message, Level.INFO);
+                handler.writeDocument(node);    
                 return true;
             } catch (final IOException exception) {
                 String message = String.format("Failed to write annotate document : %s", exception.getMessage());
@@ -332,8 +337,8 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
                 return false;
             }            
         }
-        String message = "Skip to write annotate document: operand was false";
-        withMessage(message, Level.SEVERE);
+        String message = "Skipped document : operand was false";
+        withMessage(message, Level.INFO);
         return true;
     }
 
