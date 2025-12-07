@@ -210,8 +210,13 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
 
     @Override
     protected synchronized BooleanDocument operate(final @NonNull JsonNode operand) {
+        withMessage("Annotating content", Level.INFO);
         String textContent = operand.asText();
         BooleanDocument annotation = agent.annotate(textContent);
+        if(annotation == null) {
+            String message = String.format("Agent failed to create document");
+			withMessage(message, Level.SEVERE);
+        }
         return annotation;
     }
 
@@ -219,7 +224,12 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
     protected synchronized boolean result(final BooleanDocument operand) {
         Boolean annotation = operand.value();
         JsonNode node = getConsumed();
-        if(annotation && node != null) {
+        if(node == null) {
+            String message = "Failed to write annotate document: operand was null";
+            withMessage(message, Level.SEVERE);
+            return false;            
+        }
+        if(annotation) {
             try {
                 handler.writeDocument(node);
                 return true;
@@ -229,9 +239,9 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
                 return false;
             }            
         }
-		String message = "Failed to write annotate document: operand was null";
-		withMessage(message, Level.SEVERE);
-		return false;
+        String message = "Skip to write annotate document: operand was false";
+        withMessage(message, Level.SEVERE);
+        return true;
     }
 
 	@Override

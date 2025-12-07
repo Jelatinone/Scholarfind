@@ -196,12 +196,14 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 			configureClient();
 		} catch (final ParseException exception) {
-			String message = String.format("Initialization failed : Failed to parse arguments %s", exception.getMessage());
+			String message = String.format("Initialization failed : Failed to parse arguments %s",
+					exception.getMessage());
 			withMessage(message, Level.SEVERE);
 			withState(State.FAILED);
 			return;
 		} catch (final IOException exception) {
-			String message = String.format("Initialization failed : Failed to create JSON handler", exception.getMessage());
+			String message = String.format("Initialization failed : Failed to create JSON handler",
+					exception.getMessage());
 			withMessage(message, Level.SEVERE);
 			withState(State.FAILED);
 			return;
@@ -300,7 +302,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 				withMessage(message, Level.SEVERE);
 			}
 			if (document == null) {
-				String message = String.format("Agent failed to create document", operand.toString());
+				String message = String.format("Agent failed to create document : %s", operand.toString());
 				withMessage(message, Level.SEVERE);
 			}
 			return document;
