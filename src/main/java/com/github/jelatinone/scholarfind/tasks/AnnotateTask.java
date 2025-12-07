@@ -26,11 +26,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.github.jelatinone.scholarfind.agent.AgentHandler;
-import com.github.jelatinone.scholarfind.agent.implementation.OpenAIAgentHandler;
 import com.github.jelatinone.scholarfind.json.JsonHandler;
 import com.github.jelatinone.scholarfind.json.JsonSerializer;
 import com.github.jelatinone.scholarfind.meta.State;
 import com.github.jelatinone.scholarfind.meta.Task;
+import com.github.jelatinone.scholarfind.models.AgentType;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.AnnotateStub;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.EducationLevel;
@@ -189,7 +189,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 				return;
 			}
 			type = agentType;
-			agent = type.acquire();
+			agent = type.acquire(DEFAULT_AGENT_PROMPT, AnnotateStub.class);
 
 			client = new WebClient(BrowserVersion.BEST_SUPPORTED);
 			handler = JsonHandler.acquireWriter(destination, _serializer);
@@ -291,7 +291,8 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			withMessage("Annotating content", Level.INFO);
 			AnnotateDocument document;
 			try {
-				AnnotateStub stub = agent.annotate(pageContent);
+				String text = pageContent.getVisibleText();
+				AnnotateStub stub = agent.annotate(text);
 				document = new AnnotateDocument(operand, stub);
 			} catch (final Exception exception) {
 				document = null;
@@ -339,7 +340,7 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			configureClient();
 
 			agent.close();
-			agent = type.acquire();
+			agent = type.acquire(DEFAULT_AGENT_PROMPT, AnnotateStub.class);
 
 			handler.close();
 			handler = JsonHandler.acquireWriter(destination, _serializer);
@@ -349,16 +350,5 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			throw exception;
 		}
 		withMessage("Restarting resources safely completed", Level.INFO);
-	}
-
-	public enum AgentType {
-		CHAT_GPT {
-			@Override
-			public AgentHandler<AnnotateStub> acquire() {
-				return new OpenAIAgentHandler<AnnotateStub>(DEFAULT_AGENT_PROMPT, AnnotateStub.class);
-			}
-		};
-
-		public abstract AgentHandler<AnnotateStub> acquire();
 	}
 }

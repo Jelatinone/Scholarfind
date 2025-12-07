@@ -21,6 +21,7 @@ import org.apache.commons.cli.ParseException;
 
 import com.github.jelatinone.scholarfind.meta.Task;
 import com.github.jelatinone.scholarfind.tasks.AnnotateTask;
+import com.github.jelatinone.scholarfind.tasks.FilterTask;
 import com.github.jelatinone.scholarfind.tasks.SearchTask;
 
 import lombok.AccessLevel;
@@ -195,7 +196,8 @@ public final class Main {
 
 	static enum TaskType {
 		SEARCH(SearchTask::new),
-		ANNOTATE(AnnotateTask::new);
+		ANNOTATE(AnnotateTask::new),
+		FILTER(FilterTask::new);
 
 		private final Function<String[], Task<?, ?>> factory;
 

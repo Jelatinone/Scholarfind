@@ -99,6 +99,28 @@ public class JsonHandler<Document> implements AutoCloseable {
 		}
 	}
 
+	/**
+	 * 
+	 * Synchronously writes a Node object to a JSON file using the internal
+	 * JsonGenerator and provided serializer, then flushes the content safely.
+	 * 
+	 * @param node Content to write to internal JSON file
+	 * @throws IOException When a critical IO failure occurs while trying to write
+	 *                     with the generator
+	 */
+	public synchronized void writeDocument(final @NonNull JsonNode node) throws IOException {
+		try {
+			synchronized(generator) {
+				generator.writeTree(node);
+				generator.flush();
+			}
+		} catch (final IOException exception) {
+			String message = "Failed to write JSON document";
+			_logger.severe(message);
+			throw exception;
+		}
+	}
+ 
 	@Override
 	public synchronized void close() throws IOException {
 		final int count = references.decrementAndGet();

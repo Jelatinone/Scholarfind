@@ -3,8 +3,6 @@ package com.github.jelatinone.scholarfind.agent.implementation;
 import java.io.IOException;
 import java.util.logging.Logger;
 
-import org.htmlunit.html.HtmlPage;
-
 import com.github.jelatinone.scholarfind.agent.AgentHandler;
 import com.openai.client.OpenAIClient;
 import com.openai.client.okhttp.OpenAIOkHttpClient;
@@ -48,8 +46,7 @@ public class OpenAIAgentHandler<Stub> implements AgentHandler<Stub> {
 	}
 
 	@Override
-	public Stub annotate(@NonNull HtmlPage page) {
-		String content = page.getVisibleText();
+	public Stub annotate(@NonNull String content) {
 		StructuredChatCompletionCreateParams<Stub> params = ChatCompletionCreateParams.builder()
 				.addSystemMessage(prompt)
 				.addUserMessage(content)
