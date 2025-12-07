@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -279,22 +280,36 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
     protected synchronized BooleanDocument operate(final @NonNull JsonNode operand) {
         withMessage("Filtering operand", Level.INFO);
 
-        LocalDate open = LocalDate.parse(operand.get("open").asText());
-        LocalDate close = LocalDate.parse(operand.get("close").asText());
-
         LocalDate now = LocalDate.now();
 
+        LocalDate open = Optional.of(operand.get("open"))
+            .map(JsonNode::asText)
+            .map(LocalDate::parse)
+            .orElse(LocalDate.MIN);
+        LocalDate close = Optional.of(operand.get("close"))
+            .map(JsonNode::asText)
+            .map(LocalDate::parse)
+            .orElse(LocalDate.MAX);
+        String name = Optional.of(operand.get("name"))
+            .map(JsonNode::asText)
+            .get();
+
         if (now.isBefore(open) || now.isAfter(close)) {
+            String message = String.format("Filter skipped document : %s", name);
+            withMessage(message, Level.INFO);
             return new BooleanDocument(false);
         }
+        withMessage(String.format("Annotating content : %s", name), Level.INFO);
 
-        withMessage("Annotating content", Level.INFO);
+
         String textContent = operand.asText();
         BooleanDocument annotation = agent.annotate(textContent);
+
         if(annotation == null) {
-            String message = String.format("Agent failed to create document");
+            String message = String.format("Agent failed to create document : %s", name);
 			withMessage(message, Level.SEVERE);
         }
+        
         return annotation;
     }
 

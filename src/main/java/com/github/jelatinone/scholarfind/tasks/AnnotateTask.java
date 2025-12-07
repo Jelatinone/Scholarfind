@@ -285,12 +285,14 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 
 	@Override
 	protected synchronized AnnotateDocument operate(final @NonNull URL operand) {
+		String urlString = operand.toString();
 		try {
-			withMessage("Retrieving page content", Level.INFO);
+
+			withMessage(String.format("Retrieving page content : %s", urlString), Level.INFO);
 			final HtmlPage pageContent = client
 					.<HtmlPage>getPage(operand);
 
-			withMessage("Annotating content", Level.INFO);
+			withMessage(String.format("Annotating content : %s", urlString), Level.INFO);
 			AnnotateDocument document;
 			try {
 				String text = pageContent.getVisibleText();
@@ -307,10 +309,10 @@ public final class AnnotateTask extends Task<URL, AnnotateDocument> {
 			}
 			return document;
 		} catch (final FailingHttpStatusCodeException exception) {
-			String message = String.format("Failing status code returned URL : %s", operand.toString());
+			String message = String.format("Failing status code returned URL : %s", urlString);
 			withMessage(message, Level.SEVERE);
 		} catch (final IOException exception) {
-			String message = String.format("Failed to retrieve content from URL : %s", operand.toString());
+			String message = String.format("Failed to retrieve content from URL : %s", urlString);
 			withMessage(message, Level.SEVERE);
 		}
 		return null;
