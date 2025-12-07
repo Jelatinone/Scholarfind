@@ -1,7 +1,6 @@
 package com.github.jelatinone.scholarfind.tasks;
 
 import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -279,6 +278,16 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
     @Override
     protected synchronized BooleanDocument operate(final @NonNull JsonNode operand) {
         withMessage("Annotating content", Level.INFO);
+
+        LocalDate open = LocalDate.parse(operand.get("open").asText());
+        LocalDate close = LocalDate.parse(operand.get("close").asText());
+
+        LocalDate now = LocalDate.now();
+
+        if (now.isBefore(open) || now.isAfter(close)) {
+            return new BooleanDocument(false);
+        }
+
         String textContent = operand.asText();
         BooleanDocument annotation = agent.annotate(textContent);
         if(annotation == null) {
