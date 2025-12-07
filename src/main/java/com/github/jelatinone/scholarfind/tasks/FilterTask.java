@@ -318,7 +318,7 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
 
     @Override
     protected synchronized boolean result(final BooleanDocument operand) {
-        Boolean annotation = operand.value();
+        Boolean annotation = operand !=  null? operand.value(): type == AgentType.NONE;
         JsonNode node = getConsumed();
         if(node == null) {
             String message = "Failed to write annotate document: operand was null";
