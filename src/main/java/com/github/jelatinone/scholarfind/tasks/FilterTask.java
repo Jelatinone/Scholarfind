@@ -24,6 +24,7 @@ import com.github.jelatinone.scholarfind.json.JsonSerializer;
 import com.github.jelatinone.scholarfind.meta.State;
 import com.github.jelatinone.scholarfind.meta.Task;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument;
+import com.github.jelatinone.scholarfind.models.BooleanDocument;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.AnnotateStub;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.EducationLevel;
 import com.github.jelatinone.scholarfind.models.AnnotateDocument.PursuedDegreeLevel;
@@ -33,7 +34,7 @@ import com.github.jelatinone.scholarfind.models.AgentType;
 import lombok.NonNull;
 import lombok.experimental.NonFinal;
 
-public class FilterTask extends Task<JsonNode, JsonNode> {
+public class FilterTask extends Task<JsonNode, BooleanDocument> {
     static String DEFAULT_AGENT_PROMPT = """
 
             """;
@@ -95,7 +96,7 @@ public class FilterTask extends Task<JsonNode, JsonNode> {
     @NonFinal
     JsonHandler<AnnotateDocument> handler;
     @NonFinal
-    AgentHandler<Boolean> agent;
+    AgentHandler<BooleanDocument> agent;
 
     @NonFinal
     String source;
@@ -153,7 +154,7 @@ public class FilterTask extends Task<JsonNode, JsonNode> {
                 return;
             }
             type = agentType;
-            agent = type.acquire(DEFAULT_AGENT_PROMPT, Boolean.class);
+            agent = type.acquire(DEFAULT_AGENT_PROMPT, BooleanDocument.class);
 
             handler = JsonHandler.acquireWriter(destination, _serializer);
         } catch (final ParseException exception) {
@@ -183,7 +184,7 @@ public class FilterTask extends Task<JsonNode, JsonNode> {
             withMessage("Collection acquired", Level.INFO);
             ArrayNode results = JsonHandler.acquireContent(file, mapper);
             results.forEach(items::add);
-            withMessage(String.format("Found %d URLs", items.size()), Level.INFO);
+            withMessage(String.format("Found %d Items", items.size()), Level.INFO);
         } catch (final IOException exception) {
             String message = String.format("Failed to retrieve source content: %s", source);
             withMessage(message, Level.SEVERE);
@@ -208,24 +209,26 @@ public class FilterTask extends Task<JsonNode, JsonNode> {
     }
 
     @Override
-    protected synchronized JsonNode operate(final @NonNull JsonNode operand) {
+    protected synchronized BooleanDocument operate(final @NonNull JsonNode operand) {
         String textContent = operand.asText();
-        Boolean estimate = agent.annotate(textContent);
-        return estimate? operand: null;
+        BooleanDocument annotation = agent.annotate(textContent);
+        return annotation;
     }
 
     @Override
-    protected synchronized boolean result(final JsonNode operand) {
-        if (operand != null) {
-			try {
-                handler.writeDocument(operand);
-				return true;
-			} catch (final IOException exception) {
-				String message = String.format("Failed to write annotate document : %s", exception.getMessage());
-				withMessage(message, Level.SEVERE);
-				return false;
-			}
-		}
+    protected synchronized boolean result(final BooleanDocument operand) {
+        Boolean annotation = operand.value();
+        JsonNode node = getConsumed();
+        if(annotation && node != null) {
+            try {
+                handler.writeDocument(node);
+                return true;
+            } catch (final IOException exception) {
+                String message = String.format("Failed to write annotate document : %s", exception.getMessage());
+                withMessage(message, Level.SEVERE);
+                return false;
+            }            
+        }
 		String message = "Failed to write annotate document: operand was null";
 		withMessage(message, Level.SEVERE);
 		return false;
@@ -236,7 +239,7 @@ public class FilterTask extends Task<JsonNode, JsonNode> {
 		withMessage("Restarting resources", Level.INFO);
 		try {
 			agent.close();
-			agent = type.acquire(DEFAULT_AGENT_PROMPT, Boolean.class);
+			agent = type.acquire(DEFAULT_AGENT_PROMPT, BooleanDocument.class);
 
 			handler.close();
 			handler = JsonHandler.acquireWriter(destination, _serializer);
