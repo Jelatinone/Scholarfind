@@ -1,7 +1,10 @@
 package com.github.jelatinone.scholarfind.tasks;
 
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,8 +39,67 @@ import lombok.experimental.NonFinal;
 
 public class FilterTask extends Task<JsonNode, BooleanDocument> {
     static String DEFAULT_AGENT_PROMPT = """
+        You will receive two JSON objects outside of this prompt:
 
-            """;
+        1. A scholarship object that strictly follows this schema:
+
+        {
+            scholarshipTitle: string,
+            organizationName: string,
+            award: double | null,
+            open: string | null,
+            close: string | null,
+            pursued: PursuedDegreeLevel[] | [],
+            education: EducationLevel[] | [],
+            supplements: Supplement[] | [],
+            requirements: string[] | []
+        }
+
+        2. A student profile object that may include eligibility attributes
+        (GPA, demographics, major, citizenship, etc.) as well as optional
+        student-specific preferences (such as minimum award amounts, preferred
+        locations, etc.).
+
+        Your task is to determine whether the student qualifies for this scholarship.
+
+        Output Rules:
+        - Return ONLY `true` or `false` (lowercase).
+        - Consider **only** requirements that relate to eligibility unless the
+        student profile explicitly specifies additional preference constraints
+        (e.g., “minimumAward: 25000”).
+        - If a scholarship requirement is not met, return `false`.
+        - If the student profile includes preference-based constraints
+        (e.g., minimum award, region, field of study, modality), those must
+        also be satisfied or the result is `false`.
+        - If the student profile does NOT include a preference for a given
+        attribute, you must IGNORE that attribute entirely unless the scholarship
+        explicitly requires it.
+        - If a requirement is ambiguous, missing, or cannot be validated from the
+        scholarship object, treat it as **not required**.
+
+        Evaluation Guidelines:
+        - For enum arrays (`pursued`, `education`, `supplements`):
+            - If non-empty, the student must have at least one matching value.
+        - For textual `requirements`:
+            - Evaluate each requirement literally using only fields present in the student profile.
+            - Examples: GPA thresholds, citizenship restrictions, demographic qualifiers, age limits, majors, financial-need wording, enrollment status, etc.
+        - For profile-based preferences:
+            - Apply them only if the profile explicitly provides them.
+            - Example: If the profile specifies "minimumAward: 25000", reject scholarships with award < 25000 or award = null.
+        - Ignore factors such as award size, deadlines, geography, or institutional type unless:
+            * they are required in the scholarship, OR
+            * the student profile explicitly includes them as a preference.
+
+        Return exactly one value: `true` if all scholarship requirements AND all
+        profile-specified preferences are met; otherwise return `false`.
+
+        Student profile: 
+
+        --BEGIN PROFILE--
+        %s
+        --END PROFILE--
+        """;
+    
     static Options _config = new Options();
     static Logger _logger = Logger.getLogger(AnnotateTask.class.getName());
     static CommandLineParser _parser = new DefaultParser();
@@ -102,22 +164,14 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
     String source;
     @NonFinal
     String destination;
-    @NonFinal
-    Integer timeout;
+    @NonFinal 
+    String profile;
+
     @NonFinal
     AgentType type;
 
     static {
         _config.addOptions(DEFAULT_OPTION_CONFIGURATION);
-        Option opt_networkTimeout = Option.builder()
-                .longOpt("timeout")
-                .numberOfArgs(1)
-                .hasArg()
-                .valueSeparator('=')
-                .desc("maximum time (seconds) to wait for a network request")
-                .converter(Integer::valueOf)
-                .get();
-        _config.addOption(opt_networkTimeout);
         Option opt_agentType = Option.builder()
                 .longOpt("agent")
                 .numberOfArgs(1)
@@ -127,6 +181,13 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
                 .converter((value) -> AgentType.valueOf(value.toUpperCase()))
                 .get();
         _config.addOption(opt_agentType);
+		Option opt_profileTarget = Option.builder()
+				.longOpt("profile")
+				.required()
+				.hasArg()
+				.desc("location to pull profile source data from > ~2GB")
+				.get();
+		_config.addOption(opt_profileTarget);
     }
 
     public FilterTask(final @NonNull String... arguments) {
@@ -143,8 +204,13 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
                             .now()
                             .toString());
 
-            Integer networkTimeout = command.getParsedOptionValue("timeout");
-            timeout = networkTimeout != null ? networkTimeout : DEFAULT_NETWORK_TIMEOUT;
+            String profileTarget = command.getOptionValue("profile");
+            if(profileTarget == null) {
+                String message = "Initialization failed : Failed to retrieve profile";
+                withMessage(message, Level.SEVERE);
+                withState(State.FAILED);
+                return;
+            }
 
             AgentType agentType = command.getParsedOptionValue("agent");
             if (agentType == null) {
@@ -154,7 +220,9 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
                 return;
             }
             type = agentType;
-            agent = type.acquire(DEFAULT_AGENT_PROMPT, BooleanDocument.class);
+
+            String profileContent = Files.readString(Path.of(profileTarget));
+            agent = type.acquire(String.format(DEFAULT_AGENT_PROMPT, profileContent), BooleanDocument.class);
 
             handler = JsonHandler.acquireWriter(destination, _serializer);
         } catch (final ParseException exception) {
@@ -164,7 +232,7 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
             withState(State.FAILED);
             return;
         } catch (final IOException exception) {
-            String message = String.format("Initialization failed : Failed to create JSON handler",
+            String message = String.format("Initialization failed : Failed to handle files",
                     exception.getMessage());
             withMessage(message, Level.SEVERE);
             withState(State.FAILED);
