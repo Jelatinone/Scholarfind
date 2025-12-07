@@ -277,7 +277,7 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
 
     @Override
     protected synchronized BooleanDocument operate(final @NonNull JsonNode operand) {
-        withMessage("Annotating content", Level.INFO);
+        withMessage("Filtering operand", Level.INFO);
 
         LocalDate open = LocalDate.parse(operand.get("open").asText());
         LocalDate close = LocalDate.parse(operand.get("close").asText());
@@ -288,6 +288,7 @@ public class FilterTask extends Task<JsonNode, BooleanDocument> {
             return new BooleanDocument(false);
         }
 
+        withMessage("Annotating content", Level.INFO);
         String textContent = operand.asText();
         BooleanDocument annotation = agent.annotate(textContent);
         if(annotation == null) {
