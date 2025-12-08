@@ -50,7 +50,7 @@ public class OpenAIAgentHandler<Stub> implements AgentHandler<Stub> {
 		StructuredChatCompletionCreateParams<Stub> params = ChatCompletionCreateParams.builder()
 				.addSystemMessage(prompt)
 				.addUserMessage(content)
-				.model(ChatModel.GPT_4O_MINI)
+				.model(ChatModel.O4_MINI)
 				.responseFormat(responseFormat)
 				.build();
 		StructuredChatCompletion<Stub> completion;
